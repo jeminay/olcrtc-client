@@ -491,8 +491,8 @@ async def connect_peer(name, conn):
 
 async def run():
     print("ChaCha20-Poly1305 over Telemost DC + VC")
-    print("text + video encrypted transfer\n")
-    print("           by zarazaex for olc\n")
+    print("text + video encrypted transfer")
+    print("      by zarazaex for olc\n")
 
     sender_conn = get_connection_info("QR_Sender")
     receiver_conn = get_connection_info("QR_Receiver")
