@@ -339,7 +339,7 @@ async def run_full_test():
     
     test_messages = [
         "Hello OlcRTC!",
-        "Test message 2",
+        "я всего лиш хотел дружить зачем тролякатся",
         "X" * 100,
         "Final test"
     ]
