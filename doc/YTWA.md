@@ -4,6 +4,14 @@
 
 Yandex Telemost implements a Selective Forwarding Unit (SFU) architecture for WebRTC conferencing. The system supports audio, video, and SCTP DataChannel transport over WebRTC with separate publisher and subscriber peer connections.
 
+**Project includes practical implementations:**
+- `dcsend.py` - HTTP requests via DataChannel with chunking
+- `vcsend.py` - Data transfer via video QR codes  
+- `flood.py` - Stress testing connections
+- `limits.py` - Limits and performance verification
+- `info.py` - Conference information gathering
+- `poc.py` - Basic proof-of-concept
+
 ## Architecture
 
 ### Connection Model
@@ -391,7 +399,7 @@ candidate:{foundation} {component} {protocol} {priority} {ip} {port} typ {type} 
 - **Max Message Size (Advertised):** 1,073,741,823 bytes (1023 MB)
 - **Max Message Size (Actual):** 8,192 bytes (8 KB)
 - **Ordered:** Configurable (recommended: true)
-- **Label:** Custom (e.g., "olcrtc")
+- **Label:** Custom (e.g., "dcsend", "olcrtc", "limits_test")
 
 ### SDP Attributes
 
@@ -403,47 +411,196 @@ a=max-message-size:1073741823
 
 ### Message Size Limitations
 
-The GOLOOM media server enforces a hard limit of 8KB per SCTP message despite advertising 1023MB in SDP. Messages exceeding 8KB are silently dropped.
+**CRITICAL LIMITATION:** GOLOOM media server enforces SCTP message limit to 8KB despite advertising 1023MB in SDP. Messages over 8KB are silently dropped.
 
-**Verified Limits:**
-- 8KB (8,192 bytes): ✓ Delivered
-- 10KB (10,240 bytes): ✗ Dropped
+**Verified limits (from `limits.py`):**
+- + 8KB (8,192 bytes): Delivered
+- X 10KB (10,240 bytes): Dropped
+- X 12KB+ : Dropped
 
-**Root Cause:** SCTP fragmentation limit. Messages requiring more than ~6-7 UDP packets (MTU 1500) exceed server's reassembly buffer.
+**Root cause:** SCTP fragmentation limit. Messages requiring more than ~6-7 UDP packets (MTU 1500) exceed server's reassembly buffer.
 
 ### Large Data Transfer
 
-For data exceeding 8KB, implement application-level chunking:
+Для данных свыше 8KB используйте чанкинг на уровне приложения:
 
-**Method:** Split data into 8KB chunks, send sequentially with bufferedAmount throttling.
-
-**Performance Metrics (Measured):**
-- 64KB: 2,198ms (239 Kbps)
-- 128KB: 2,218ms (473 Kbps)
-- 256KB: 2,204ms (952 Kbps)
-
-**Implementation:**
+**Implementation from `dcsend.py`:**
 ```python
-chunk_size = 8192
-for i in range(0, len(data), chunk_size):
-    while datachannel.bufferedAmount > chunk_size * 2:
-        await asyncio.sleep(0.001)
-    datachannel.send(data[i:i+chunk_size])
+CHUNK_SIZE = 7168  # Safe size accounting for headers
+HEADER_SIZE = 1024
+
+def chunk_data(data, transfer_id):
+    total_size = len(data)
+    chunk_count = (total_size + CHUNK_SIZE - 1) // CHUNK_SIZE
+    packets = []
+    
+    for i in range(chunk_count):
+        start = i * CHUNK_SIZE
+        end = min(start + CHUNK_SIZE, total_size)
+        chunk = data[start:end]
+        
+        header = {"tid": transfer_id, "idx": i, "total": chunk_count, "size": total_size}
+        header_json = json.dumps(header).encode()
+        header_padded = header_json.ljust(HEADER_SIZE, b'\x00')
+        
+        packets.append(header_padded + chunk)
+    
+    return packets
+
+class ChunkedReceiver:
+    def handle_chunk(self, packet):
+        header_bytes = packet[:HEADER_SIZE].rstrip(b'\x00')
+        chunk_data = packet[HEADER_SIZE:]
+        
+        header = json.loads(header_bytes)
+        tid, idx, total = header["tid"], header["idx"], header["total"]
+        
+        # Chunk assembly...
 ```
 
-**Latency Characteristics (RTT):**
+**Performance (measured in `limits.py`):**
+- 64KB: 2,198ms (239 Kbps)
+- 128KB: 2,218ms (473 Kbps) 
+- 256KB: 2,204ms (952 Kbps)
+
+**Throttling to prevent overflow:**
+```python
+while datachannel.bufferedAmount > CHUNK_SIZE * 2:
+    await asyncio.sleep(0.001)
+datachannel.send(chunk)
+```
+
+**Latency characteristics (RTT from `limits.py`):**
 - 100 bytes: 42-54ms
 - 1KB: 63-74ms
 - 4KB: 54-118ms
 - 8KB: 84-201ms
 
-### Usage
+## Video Channel Data Transfer
 
-DataChannel is created on the publisher PeerConnection and becomes available on the subscriber PeerConnection through the `ondatachannel` event.
+### QR Code Video Streaming
+
+**Alternative data transfer method via video stream (from `vcsend.py`):**
+
+```python
+# Encoding data into QR codes
+def chunk_data(data, tid):
+    b64 = base64.b64encode(data).decode()
+    n = (len(b64) + CHUNK_SIZE - 1) // CHUNK_SIZE
+    return [json.dumps({"tid": tid, "idx": i, "total": n,
+                        "data": b64[i * CHUNK_SIZE:(i + 1) * CHUNK_SIZE]})
+            for i in range(n)]
+
+class QRVideoTrack(MediaStreamTrack):
+    def set_data(self, chunks):
+        self._frames = [make_qr_frame(c, i) for i, c in enumerate(chunks)]
+    
+    async def recv(self):
+        # Cyclic QR frame transmission at 1 FPS
+        frame = self._frames[self._idx]
+        self._idx = (self._idx + 1) % len(self._frames)
+        return frame
+```
+
+**Decoding on receiver:**
+```python
+class QRReceiver:
+    def feed_frame(self, frame):
+        # Multiple processing variants for reliability
+        variants = [gray, upscaled, threshold, threshold_upscaled]
+        
+        for variant in variants:
+            # pyzbar + cv2.QRCodeDetector for maximum compatibility
+            decoded_data = decode_qr_codes(variant)
+```
+
+**Characteristics:**
+- QR size: 600x600 pixels
+- Frame rate: 1 FPS
+- Chunk size: 400 bytes (base64)
+- Error correction: ERROR_CORRECT_M
+
+**Advantages:**
+- Works even when DataChannel is blocked
+- Visual debugging (frame saving to /tmp/)
+- Resilient to packet loss
+
+## Practical Implementations
+
+### HTTP Proxy via DataChannel (`dcsend.py`)
+
+**Client-server architecture:**
+```python
+# Client sends HTTP request
+client["dc_pub"].send(f"GET {url}")
+
+# Server processes request
+async def handle_request(url, dc, stats):
+    response = requests.get(url, timeout=10)
+    data = response.content
+    
+    # Chunking large responses
+    transfer_id = generate_uuid()
+    packets = chunk_data(data, transfer_id)
+    
+    for packet in packets:
+        while dc.bufferedAmount > CHUNK_SIZE * 2:
+            await asyncio.sleep(0.001)
+        dc.send(packet)
+```
+
+### Stress Testing (`flood.py`)
+
+**Mass peer connections:**
+```python
+# Connect up to 411 peers simultaneously
+for i in range(1, 412):
+    name = f"STOP LET'S BE FRIENDS... {suffix}"
+    task = asyncio.create_task(connect_peer(name, i))
+    await asyncio.sleep(0.5)  # Connection throttling
+```
+
+**Test results:**
+- Maximum participants: 40 (conference limit)
+- Connection time: ~0.5s per peer
+- Stability: WebSocket keep-alive mandatory
+
+### Limits Analysis (`limits.py`)
+
+**Automatic verification of all limitations:**
+```python
+async def check_all_limits():
+    dc_limits = await check_datachannel_limits()      # DataChannel
+    conf_limits = await check_conference_limits()     # Conference  
+    audio_limits = await check_audio_limits()         # Audio codecs
+    video_limits = await check_video_limits()         # Video codecs
+    ice_limits = await check_ice_limits()             # ICE/TURN
+    
+    # Real performance tests
+    test_results = await test_message_size_limits()
+    test_results.extend(await test_latency_microbench())
+    test_results.extend(await test_throughput_limits())
+```
+
+### Information Gathering (`info.py`)
+
+**Complete conference analysis:**
+```python
+# WebSocket monitoring + REST API
+info = await collect_webrtc_info()
+
+# Detailed report
+print_full_report(info)  # Participants, codecs, ICE servers, SDP
+```
+
+**Collected data:**
+- List of all participants (WebSocket + REST API)
+- Supported audio/video codecs
+- ICE/TURN servers with credentials
+- SDP statistics and RTP extensions
+- Access permissions and conference state
 
 ## Audio Codec Configuration
-
-### Opus
 
 - **Sample Rate:** 48000 Hz
 - **Channels:** 2 (stereo)
@@ -546,7 +703,7 @@ Credentials are time-limited and provided in `serverHello.rtcConfiguration.iceSe
 ### Authentication
 
 - Credentials obtained from REST API
-- Time-limited session tokens
+- Time-limited session tokens  
 - Peer ID and room ID validation
 
 ### Transport Security
@@ -555,47 +712,130 @@ Credentials are time-limited and provided in `serverHello.rtcConfiguration.iceSe
 - DTLS for media transport
 - SRTP for audio/video encryption
 
-## Implementation Notes
-
 ### Guest Access
 
+**Important:** The system allows anonymous access to conferences:
 - No authentication required for participants
-- Only conference initiator needs account
+- Only conference initiator needs an account
 - Display name can be arbitrary
+- Possible flood attacks (see `flood.py`)
 
-### Peer Limit
+### Rate Limiting
 
-- Default conference limit: 40 participants
-- Configurable per conference
+**Recommendations based on testing:**
+- Limit connection attempts per IP
+- Exponential backoff on failures
+- Respect session expiration times
+- Throttle WebSocket messages
+
+## Implementation Notes
+
+### Conference Limits
+
+**Verified limits (from `limits.py`):**
+- Maximum participants: 40 (default)
+- Session timeout: 120,000ms (2 minutes)
+- Ping interval: 5,000ms
+- ACK timeout: 9,000ms
 
 ### User Agent Spoofing
 
 - Server may validate `User-Agent` and `sdkInfo`
 - Recommended to use realistic browser signatures
+- Example from code: `"Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0"`
 
 ### DataChannel Availability
 
 - DataChannel support is not guaranteed
 - Check SDP for `m=application` line before assuming availability
 - Server may disable DataChannel without notice
+- Fallback to video QR codes (see `vcsend.py`)
+
+### Error Handling
+
+**Common errors and solutions:**
+
+```python
+# Connection timeout
+try:
+    await asyncio.wait_for(dc_pub_open.wait(), timeout=10.0)
+except asyncio.TimeoutError:
+    # Retry with exponential backoff
+    
+# Buffer overflow
+while dc.bufferedAmount > CHUNK_SIZE * 2:
+    await asyncio.sleep(0.001)
+    
+# WebSocket connection loss  
+async def ws_handler():
+    try:
+        async for message in ws:
+            # Processing...
+    except websockets.exceptions.ConnectionClosed:
+        # Reconnection
+```
 
 ### DataChannel Message Size Workaround
 
-The 8KB message limit can be bypassed using application-level chunking. For reliable large data transfer:
+**8KB limit bypass using chunking (from `dcsend.py`):**
 
-1. Split payload into 8KB chunks
-2. Add sequence headers (chunk index, total chunks, transfer ID)
+1. Split payload into 7KB chunks (accounting for headers)
+2. Add sequence headers (chunk index, total chunks, transfer ID)  
 3. Implement reassembly buffer on receiver
 4. Use bufferedAmount throttling to prevent congestion
 
 **Throughput:** ~950 Kbps sustained for 256KB transfers with 32 sequential 8KB messages.
 
+**Alternative method - QR Video (`vcsend.py`):**
+- Encode data into QR codes
+- Transmit via 1 FPS video stream
+- Decode using pyzbar + OpenCV
+- Resilient to losses with visual debugging
+
 ## Rate Limits
 
-Not explicitly documented. Recommended approach:
+**Not explicitly documented. Recommended approach from testing:**
 - Limit connection attempts per IP
-- Implement exponential backoff on failures
+- Exponential backoff on failures  
 - Respect session expiration times
+- Connection interval: 0.5s (from `flood.py`)
+
+## Testing Tools
+
+### Running tests
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# HTTP proxy via DataChannel
+python code/dcsend.py
+
+# QR code transfer via video
+python code/vcsend.py  
+
+# Stress test connections
+python code/flood.py
+
+# Verify all limits
+python code/limits.py
+
+# Conference analysis
+python code/info.py
+
+# Basic PoC
+python code/poc.py
+```
+
+### Configuration
+
+All scripts use the same conference:
+```python
+CONFERENCE_ID = "75047680642749"
+CONFERENCE_URL = f"https://telemost.yandex.ru/j/{CONFERENCE_ID}"
+```
+
+For testing, create your own conference and update `CONFERENCE_ID`.
 
 ## Bandwidth Configuration
 
