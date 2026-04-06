@@ -71,10 +71,13 @@ func Run(roomURL, keyHex string) error {
 	s.peer = peer
 
 	log.Println("Connecting to Telemost...")
-	if err := peer.Connect(context.Background()); err != nil {
+	ctx := context.Background()
+	if err := peer.Connect(ctx); err != nil {
 		return err
 	}
 	log.Println("Connected to Telemost")
+
+	go peer.WatchConnection(ctx)
 
 	return s.run()
 }

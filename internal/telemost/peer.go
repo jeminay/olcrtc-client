@@ -13,14 +13,16 @@ import (
 )
 
 type Peer struct {
-	roomURL string
-	name    string
-	conn    *ConnectionInfo
-	ws      *websocket.Conn
-	pcSub   *webrtc.PeerConnection
-	pcPub   *webrtc.PeerConnection
-	dc      *webrtc.DataChannel
-	onData  func([]byte)
+	roomURL    string
+	name       string
+	conn       *ConnectionInfo
+	ws         *websocket.Conn
+	pcSub      *webrtc.PeerConnection
+	pcPub      *webrtc.PeerConnection
+	dc         *webrtc.DataChannel
+	onData     func([]byte)
+	reconnectCh chan struct{}
+	closeCh    chan struct{}
 }
 
 func NewPeer(roomURL, name string, onData func([]byte)) (*Peer, error) {
@@ -30,10 +32,12 @@ func NewPeer(roomURL, name string, onData func([]byte)) (*Peer, error) {
 	}
 
 	return &Peer{
-		roomURL: roomURL,
-		name:    name,
-		conn:    conn,
-		onData:  onData,
+		roomURL:     roomURL,
+		name:        name,
+		conn:        conn,
+		onData:      onData,
+		reconnectCh: make(chan struct{}, 1),
+		closeCh:     make(chan struct{}),
 	}, nil
 }
 
@@ -89,6 +93,13 @@ func (p *Peer) Connect(ctx context.Context) error {
 		return err
 	}
 	p.ws = ws
+
+	ws.SetPongHandler(func(string) error {
+		ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+
+	go p.keepAlive()
 
 	if err := p.sendHello(); err != nil {
 		return err
@@ -162,6 +173,10 @@ func (p *Peer) handleSignaling() {
 		var msg map[string]interface{}
 		if err := p.ws.ReadJSON(&msg); err != nil {
 			log.Printf("WS read error: %v", err)
+			select {
+			case p.reconnectCh <- struct{}{}:
+			default:
+			}
 			return
 		}
 
@@ -320,6 +335,7 @@ func (p *Peer) setupICEHandlers() {
 }
 
 func (p *Peer) Close() error {
+	close(p.closeCh)
 	if p.ws != nil {
 		p.ws.Close()
 	}
@@ -330,4 +346,72 @@ func (p *Peer) Close() error {
 		p.pcPub.Close()
 	}
 	return nil
+}
+
+func (p *Peer) keepAlive() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if p.ws != nil {
+				if err := p.ws.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second)); err != nil {
+					log.Printf("Ping error: %v", err)
+					select {
+					case p.reconnectCh <- struct{}{}:
+					default:
+					}
+					return
+				}
+			}
+		case <-p.closeCh:
+			return
+		}
+	}
+}
+
+func (p *Peer) reconnect(ctx context.Context) error {
+	log.Println("Reconnecting...")
+	
+	if p.ws != nil {
+		p.ws.Close()
+	}
+	if p.pcSub != nil {
+		p.pcSub.Close()
+	}
+	if p.pcPub != nil {
+		p.pcPub.Close()
+	}
+	
+	time.Sleep(2 * time.Second)
+	
+	conn, err := GetConnectionInfo(p.roomURL, p.name)
+	if err != nil {
+		return err
+	}
+	p.conn = conn
+	
+	return p.Connect(ctx)
+}
+
+func (p *Peer) WatchConnection(ctx context.Context) {
+	for {
+		select {
+		case <-p.reconnectCh:
+			for {
+				if err := p.reconnect(ctx); err != nil {
+					log.Printf("Reconnect failed: %v, retrying in 5s...", err)
+					time.Sleep(5 * time.Second)
+					continue
+				}
+				log.Println("Reconnected successfully")
+				break
+			}
+		case <-p.closeCh:
+			return
+		case <-ctx.Done():
+			return
+		}
+	}
 }
