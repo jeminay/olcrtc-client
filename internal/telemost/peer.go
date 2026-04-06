@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +18,7 @@ type Peer struct {
 	name         string
 	conn         *ConnectionInfo
 	ws           *websocket.Conn
+	wsMu         sync.Mutex
 	pcSub        *webrtc.PeerConnection
 	pcPub        *webrtc.PeerConnection
 	dc           *webrtc.DataChannel
@@ -164,6 +166,8 @@ func (p *Peer) sendHello() error {
 		},
 	}
 
+	p.wsMu.Lock()
+	defer p.wsMu.Unlock()
 	return p.ws.WriteJSON(hello)
 }
 
@@ -218,6 +222,7 @@ func (p *Peer) handleSignaling() {
 				continue
 			}
 
+			p.wsMu.Lock()
 			p.ws.WriteJSON(map[string]interface{}{
 				"uid": uuid.New().String(),
 				"subscriberSdpAnswer": map[string]interface{}{
@@ -225,6 +230,7 @@ func (p *Peer) handleSignaling() {
 					"sdp":   answer.SDP,
 				},
 			})
+			p.wsMu.Unlock()
 
 			p.sendAck(uid)
 			time.Sleep(300 * time.Millisecond)
@@ -240,6 +246,7 @@ func (p *Peer) handleSignaling() {
 				continue
 			}
 
+			p.wsMu.Lock()
 			p.ws.WriteJSON(map[string]interface{}{
 				"uid": uuid.New().String(),
 				"publisherSdpOffer": map[string]interface{}{
@@ -247,6 +254,7 @@ func (p *Peer) handleSignaling() {
 					"sdp":   pubOffer.SDP,
 				},
 			})
+			p.wsMu.Unlock()
 
 			pubSent = true
 		}
@@ -295,6 +303,9 @@ func (p *Peer) handleICE(cand map[string]interface{}) {
 }
 
 func (p *Peer) sendAck(uid string) {
+	p.wsMu.Lock()
+	defer p.wsMu.Unlock()
+	
 	p.ws.WriteJSON(map[string]interface{}{
 		"uid": uid,
 		"ack": map[string]interface{}{
@@ -312,6 +323,7 @@ func (p *Peer) setupICEHandlers() {
 		}
 
 		init := c.ToJSON()
+		p.wsMu.Lock()
 		p.ws.WriteJSON(map[string]interface{}{
 			"uid": uuid.New().String(),
 			"webrtcIceCandidate": map[string]interface{}{
@@ -322,6 +334,7 @@ func (p *Peer) setupICEHandlers() {
 				"pcSeq":        1,
 			},
 		})
+		p.wsMu.Unlock()
 	})
 
 	p.pcPub.OnICECandidate(func(c *webrtc.ICECandidate) {
@@ -330,6 +343,7 @@ func (p *Peer) setupICEHandlers() {
 		}
 
 		init := c.ToJSON()
+		p.wsMu.Lock()
 		p.ws.WriteJSON(map[string]interface{}{
 			"uid": uuid.New().String(),
 			"webrtcIceCandidate": map[string]interface{}{
@@ -340,6 +354,7 @@ func (p *Peer) setupICEHandlers() {
 				"pcSeq":        1,
 			},
 		})
+		p.wsMu.Unlock()
 	})
 }
 
