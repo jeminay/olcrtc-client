@@ -856,6 +856,60 @@ Credentials are time-limited and provided in `serverHello.rtcConfiguration.iceSe
 - ACK timeout: 9000ms
 - Connection considered dead if no ACK received
 
+**WebSocket Keep-Alive Implementation:**
+
+```python
+async def send_pings(ws):
+    while True:
+        await asyncio.sleep(30)
+        try:
+            await ws.ping()
+        except Exception as e:
+            log.error(f"Ping failed: {e}")
+            break
+
+async def handle_pong(ws):
+    ws.pong_received = True
+```
+
+**Critical:** WebSocket connections close after ~1-2 minutes of inactivity. Implement periodic ping messages to maintain connection:
+
+```go
+func (p *Peer) keepAlive() {
+    ticker := time.NewTicker(30 * time.Second)
+    defer ticker.Stop()
+    
+    for {
+        select {
+        case <-ticker.C:
+            if p.ws != nil {
+                if err := p.ws.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second)); err != nil {
+                    log.Printf("Ping error: %v", err)
+                    return
+                }
+            }
+        case <-p.closeCh:
+            return
+        }
+    }
+}
+```
+
+**Pong Handler:**
+
+```go
+ws.SetPongHandler(func(string) error {
+    ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+    return nil
+})
+```
+
+**Observed Behavior:**
+- Without pings: Connection closes with `websocket: close 4008` after ~90-120 seconds
+- With pings: Connection remains stable indefinitely
+- Recommended ping interval: 30 seconds
+- Pong timeout: 10 seconds
+
 ## Security Considerations
 
 ### Authentication
