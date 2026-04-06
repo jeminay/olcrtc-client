@@ -3,7 +3,7 @@
 set -e
 
 CONTAINER_NAME="olcrtc-server"
-IMAGE_NAME="docker.io/library/golang:1.23-alpine"
+IMAGE_NAME="docker.io/library/golang:1.24-alpine"
 REPO_URL="https://github.com/zarazaex69/olcrtc.git"
 WORK_DIR="/tmp/olcrtc-deploy"
 
