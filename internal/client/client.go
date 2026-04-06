@@ -82,13 +82,13 @@ func (c *Client) onData(data []byte) {
 }
 
 func (c *Client) runSOCKS5(port int) error {
-	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
 	if err != nil {
 		return err
 	}
 	defer listener.Close()
 
-	log.Printf("SOCKS5 proxy listening on 127.0.0.1:%d", port)
+	log.Printf("SOCKS5 proxy listening on 0.0.0.0:%d", port)
 
 	for {
 		conn, err := listener.Accept()
