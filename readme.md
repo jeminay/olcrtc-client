@@ -14,6 +14,8 @@ olcRTC - out beyond
 
 Project that allows users to bypass blocking by parasitizing and tunneling on unblocked and whitelisted services in Russia, use telemost, Max, mail and API in the future
 
+
+
 ## fast start
 
 ```bash
@@ -22,6 +24,12 @@ Project that allows users to bypass blocking by parasitizing and tunneling on un
 
 # client
 ./cnc.sh
+
+# or native ( no podman )
+go build ./cmd/olcrtc
+
+# or native ( no podman ) android
+GOOS=android GOARCH=arm64 go build -ldflags="-checklinkname=0" -o build/olcrtc ./cmd/olcrtc
 
 ```
 
