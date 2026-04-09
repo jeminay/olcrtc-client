@@ -135,7 +135,7 @@ func Run(ctx context.Context, roomURL, keyHex string, socksPort int, duo bool) e
 	}
 	log.Printf("Sent reset signal to server (clientID=%d)", c.clientID)
 
-	err := c.runSOCKS5(ctx, socksPort)
+	err = c.runSOCKS5(ctx, socksPort)
 	
 	log.Println("Waiting for client goroutines...")
 	c.wg.Wait()

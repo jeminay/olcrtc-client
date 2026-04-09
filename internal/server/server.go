@@ -136,7 +136,7 @@ func Run(ctx context.Context, roomURL, keyHex string, duo bool) error {
 		}()
 	}
 
-	err := s.run(ctx)
+	err = s.run(ctx)
 	
 	log.Println("Waiting for server goroutines...")
 	s.wg.Wait()
