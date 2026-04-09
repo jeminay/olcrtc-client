@@ -199,14 +199,14 @@ func (p *Peer) Send(data []byte) error {
 	
 	queueLen := len(p.sendQueue)
 	if queueLen > 100 {
-		logger.Verbose("Send queue length: %d", queueLen)
+		log.Printf("[SEND_QUEUE] Queue length: %d (high!)", queueLen)
 	}
 	
 	select {
 	case p.sendQueue <- data:
 		return nil
 	default:
-		logger.Debug("Send queue full! Dropping packet of %d bytes", len(data))
+		log.Printf("[SEND_QUEUE] Queue full! Dropping packet of %d bytes", len(data))
 		return fmt.Errorf("send queue full")
 	}
 }
@@ -699,24 +699,35 @@ func (p *Peer) processSendQueue() {
 	for {
 		select {
 		case data := <-p.sendQueue:
+			queueStart := time.Now()
 			buffered := uint64(0)
 			if p.dc != nil {
 				buffered = p.dc.BufferedAmount()
 			}
 			
 			if buffered > 256*1024 {
-				logger.Verbose("DataChannel buffer full: %d bytes, waiting...", buffered)
+				log.Printf("[DATACHANNEL] Buffer full: %d bytes, waiting...", buffered)
 			}
 			
+			waitStart := time.Now()
 			for p.dc != nil && p.dc.BufferedAmount() > 256*1024 {
 				time.Sleep(1 * time.Millisecond)
 			}
+			waitTime := time.Since(waitStart)
 			
 			if p.dc != nil && p.dc.ReadyState() == webrtc.DataChannelStateOpen {
+				sendStart := time.Now()
 				if err := p.dc.Send(data); err != nil {
 					logger.Debug("DataChannel send error: %v", err)
 				} else {
-					logger.Verbose("Sent %d bytes to DataChannel (buffered: %d)", len(data), p.dc.BufferedAmount())
+					sendTime := time.Since(sendStart)
+					totalTime := time.Since(queueStart)
+					if waitTime > 10*time.Millisecond || sendTime > 10*time.Millisecond {
+						log.Printf("[DATACHANNEL] Sent %d bytes wait=%v send=%v total=%v buffered=%d", 
+							len(data), waitTime, sendTime, totalTime, p.dc.BufferedAmount())
+					} else {
+						logger.Verbose("Sent %d bytes to DataChannel (buffered: %d)", len(data), p.dc.BufferedAmount())
+					}
 				}
 			}
 		case <-p.closeCh:

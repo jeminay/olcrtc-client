@@ -111,6 +111,7 @@ func (m *Multiplexer) SendData(sid uint16, data []byte) error {
 		copy(frame[12:], chunk)
 
 		if err := m.onSend(frame); err != nil {
+			logger.Debug("[MUX] sid=%d onSend error: %v", sid, err)
 			return err
 		}
 	}
@@ -164,6 +165,8 @@ func (m *Multiplexer) HandleFrame(frame []byte) {
 	sid := binary.BigEndian.Uint16(frame[4:6])
 	length := binary.BigEndian.Uint16(frame[6:8])
 	seq := binary.BigEndian.Uint32(frame[8:12])
+	
+	logger.Verbose("[MUX] HandleFrame sid=%d len=%d seq=%d", sid, length, seq)
 
 	if sid == 0xFFFF && length == 0xFFFF {
 		m.mu.Lock()

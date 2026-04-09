@@ -229,6 +229,7 @@ func (s *Server) run(ctx context.Context) error {
 			go func(sid uint16) {
 				data := s.mux.ReadStream(sid)
 				if len(data) > 0 {
+					log.Printf("[SERVER] sid=%d READ_STREAM size=%d", sid, len(data))
 					s.connMu.RLock()
 					conn, exists := s.connections[sid]
 					s.connMu.RUnlock()
@@ -244,6 +245,7 @@ func (s *Server) run(ctx context.Context) error {
 					} else {
 						var req ConnectRequest
 						if err := json.Unmarshal(data, &req); err == nil && req.Cmd == "connect" {
+							log.Printf("[SERVER] sid=%d RECEIVED_CONNECT_REQUEST %s:%d", sid, req.Addr, req.Port)
 							s.connMu.Lock()
 							if oldConn, exists := s.connections[sid]; exists && oldConn != nil {
 								oldConn.Close()
@@ -269,9 +271,10 @@ func (s *Server) run(ctx context.Context) error {
 }
 
 func (s *Server) handleConnect(sid uint16, req ConnectRequest) {
+	startTime := time.Now()
 	addr := fmt.Sprintf("%s:%d", req.Addr, req.Port)
 	logger.Verbose("Handling connect request sid=%d to %s", sid, addr)
-	log.Printf("Connecting sid=%d to %s", sid, addr)
+	log.Printf("[SERVER] sid=%d CONNECT_START %s", sid, addr)
 
 	s.connMu.Lock()
 	oldConn, exists := s.connections[sid]
@@ -282,7 +285,7 @@ func (s *Server) handleConnect(sid uint16, req ConnectRequest) {
 	}
 	s.connMu.Unlock()
 
-	start := time.Now()
+	dialStart := time.Now()
 	
 	resolver := &net.Resolver{
 		PreferGo: true,
@@ -299,23 +302,25 @@ func (s *Server) handleConnect(sid uint16, req ConnectRequest) {
 	}
 	
 	conn, err := dialer.Dial("tcp4", addr)
-	elapsed := time.Since(start)
+	dialElapsed := time.Since(dialStart)
 	
 	if err != nil {
-		log.Printf("Connect failed sid=%d: %v (took %v)", sid, err, elapsed)
+		log.Printf("[SERVER] sid=%d CONNECT_FAILED dial_time=%v total_elapsed=%v err=%v", sid, dialElapsed, time.Since(startTime), err)
 		go s.mux.CloseStream(sid)
 		return
 	}
 	
-	logger.Verbose("TCP dial took %v for sid=%d", elapsed, sid)
+	logger.Verbose("TCP dial took %v for sid=%d", dialElapsed, sid)
 	
 	s.connMu.Lock()
 	s.connections[sid] = conn
 	s.connMu.Unlock()
 	
-	log.Printf("Connected sid=%d", sid)
+	log.Printf("[SERVER] sid=%d CONNECT_SUCCESS dial_time=%v", sid, dialElapsed)
 
+	sendStart := time.Now()
 	s.mux.SendData(sid, []byte{0x00})
+	log.Printf("[SERVER] sid=%d RESPONSE_SENT send_time=%v total_elapsed=%v", sid, time.Since(sendStart), time.Since(startTime))
 
 	go func() {
 		defer func() {

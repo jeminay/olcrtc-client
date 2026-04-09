@@ -194,6 +194,7 @@ func (c *Client) runSOCKS5(ctx context.Context, port int) error {
 
 func (c *Client) handleSOCKS5(conn net.Conn) {
 	defer conn.Close()
+	startTime := time.Now()
 
 	buf := make([]byte, 256)
 
@@ -251,7 +252,7 @@ func (c *Client) handleSOCKS5(conn net.Conn) {
 
 	sid := c.mux.OpenStream()
 	logger.Verbose("SOCKS5 opened stream sid=%d for %s:%d", sid, addr, port)
-	log.Printf("SOCKS5 connect sid=%d %s:%d", sid, addr, port)
+	log.Printf("[CLIENT] sid=%d SOCKS5_START %s:%d", sid, addr, port)
 
 	req := map[string]interface{}{
 		"cmd":  "connect",
@@ -260,20 +261,25 @@ func (c *Client) handleSOCKS5(conn net.Conn) {
 	}
 
 	reqData, _ := json.Marshal(req)
+	sendTime := time.Now()
 	c.mux.SendData(sid, reqData)
+	log.Printf("[CLIENT] sid=%d SEND_REQUEST elapsed=%v", sid, time.Since(sendTime))
 
 	dataReady := c.mux.WaitForData(sid)
 	timeout := time.NewTimer(10 * time.Second)
 	defer timeout.Stop()
 
+	waitStart := time.Now()
 	select {
 	case <-dataReady:
+		log.Printf("[CLIENT] sid=%d RESPONSE_RECEIVED wait_time=%v total_elapsed=%v", sid, time.Since(waitStart), time.Since(startTime))
 		stream := c.mux.GetStream(sid)
 		if stream == nil || len(stream.RecvBuf()) == 0 {
 			conn.Write([]byte{5, 4, 0, 1, 0, 0, 0, 0, 0, 0})
 			return
 		}
 	case <-timeout.C:
+		log.Printf("[CLIENT] sid=%d TIMEOUT after wait_time=%v total_elapsed=%v", sid, time.Since(waitStart), time.Since(startTime))
 		conn.Write([]byte{5, 4, 0, 1, 0, 0, 0, 0, 0, 0})
 		return
 	}
@@ -281,6 +287,7 @@ func (c *Client) handleSOCKS5(conn net.Conn) {
 	c.mux.ReadStream(sid)
 
 	conn.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
+	log.Printf("[CLIENT] sid=%d SOCKS5_READY total_elapsed=%v", sid, time.Since(startTime))
 
 	done := make(chan struct{})
 	streamClosed := make(chan struct{})
