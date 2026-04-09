@@ -340,7 +340,7 @@ func (c *Client) handleSOCKS5(conn net.Conn) {
 				if c.mux.StreamClosed(sid) {
 					return
 				}
-			case <-time.After(10 * time.Millisecond):
+			case <-time.After(1 * time.Millisecond):
 				data := c.mux.ReadStream(sid)
 				if len(data) > 0 {
 					if _, err := conn.Write(data); err != nil {
