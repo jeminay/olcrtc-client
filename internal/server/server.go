@@ -29,6 +29,7 @@ type Server struct {
 	connMu      sync.RWMutex
 	peerIdx     atomic.Uint32
 	wg          sync.WaitGroup
+	dnsServer   string
 }
 
 type ConnectRequest struct {
@@ -37,7 +38,7 @@ type ConnectRequest struct {
 	Port int    `json:"port"`
 }
 
-func Run(ctx context.Context, roomURL, keyHex string, duo bool) error {
+func Run(ctx context.Context, roomURL, keyHex string, duo bool, dnsServer string) error {
 	var key []byte
 	var err error
 
@@ -71,6 +72,7 @@ func Run(ctx context.Context, roomURL, keyHex string, duo bool) error {
 		cipher:      cipher,
 		connections: make(map[uint16]net.Conn),
 		peers:       make([]*telemost.Peer, 0),
+		dnsServer:   dnsServer,
 	}
 
 	peerCount := 1
@@ -282,9 +284,18 @@ func (s *Server) handleConnect(sid uint16, req ConnectRequest) {
 
 	start := time.Now()
 	
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{Timeout: 2 * time.Second}
+			return d.DialContext(ctx, network, s.dnsServer)
+		},
+	}
+	
 	dialer := &net.Dialer{
 		Timeout:   5 * time.Second,
 		KeepAlive: 30 * time.Second,
+		Resolver:  resolver,
 	}
 	
 	conn, err := dialer.Dial("tcp4", addr)

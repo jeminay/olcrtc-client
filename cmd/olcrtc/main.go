@@ -26,6 +26,7 @@ func main() {
 		debug     bool
 		dataDir   string
 		duo       bool
+		dnsServer string
 	)
 
 	flag.StringVar(&mode, "mode", "", "Mode: srv or cnc")
@@ -36,6 +37,7 @@ func main() {
 	flag.BoolVar(&debug, "debug", false, "Enable verbose logging")
 	flag.StringVar(&dataDir, "data", "data", "Path to data directory")
 	flag.BoolVar(&duo, "duo", false, "Use dual channels for 2x throughput")
+	flag.StringVar(&dnsServer, "dns", "1.1.1.1:53", "DNS server (default: Cloudflare 1.1.1.1)")
 	flag.Parse()
 
 	if debug {
@@ -83,7 +85,7 @@ func main() {
 	go func() {
 		switch mode {
 		case "srv":
-			errCh <- server.Run(ctx, roomURL, keyHex, duo)
+			errCh <- server.Run(ctx, roomURL, keyHex, duo, dnsServer)
 		case "cnc":
 			errCh <- client.Run(ctx, roomURL, keyHex, socksPort, duo)
 		}
