@@ -380,7 +380,7 @@ async def run_stream():
     print("\n[3/3] Starting stream...")
     await asyncio.sleep(2)
     
-    url = "https://raw.githubusercontent.com/zarazaex69/olcng/refs/heads/master/olcng.apk"
+    url = "https://raw.githubusercontent.com/openlibrecommunity/olcng/refs/heads/master/olcng.apk"
     print(f"      -> Client requesting: {url}")
     
     stream_id = None
