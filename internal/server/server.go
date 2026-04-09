@@ -152,7 +152,7 @@ func (s *Server) onData(data []byte) {
 }
 
 func (s *Server) run() error {
-	ticker := time.NewTicker(10 * time.Millisecond)
+	ticker := time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -234,7 +234,7 @@ func (s *Server) handleConnect(sid uint16, req ConnectRequest) {
 			s.connMu.Unlock()
 		}()
 		
-		buf := make([]byte, 4096)
+		buf := make([]byte, 32768)
 		for {
 			n, err := conn.Read(buf)
 			if err != nil {

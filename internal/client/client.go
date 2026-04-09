@@ -254,7 +254,7 @@ func (c *Client) handleSOCKS5(conn net.Conn) {
 
 	go func() {
 		defer close(done)
-		buf := make([]byte, 4096)
+		buf := make([]byte, 32768)
 		for {
 			n, err := conn.Read(buf)
 			if err != nil {
@@ -269,7 +269,7 @@ func (c *Client) handleSOCKS5(conn net.Conn) {
 
 	go func() {
 		defer close(streamClosed)
-		ticker := time.NewTicker(10 * time.Millisecond)
+		ticker := time.NewTicker(1 * time.Millisecond)
 		defer ticker.Stop()
 
 		for {

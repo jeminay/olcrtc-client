@@ -74,7 +74,7 @@ func (m *Multiplexer) SendData(sid uint16, data []byte) error {
 		return nil
 	}
 
-	const chunkSize = 7168
+	const chunkSize = 16384
 	for i := 0; i < len(data); i += chunkSize {
 		end := i + chunkSize
 		if end > len(data) {
