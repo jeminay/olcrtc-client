@@ -152,51 +152,52 @@ func (s *Server) onData(data []byte) {
 }
 
 func (s *Server) run() error {
-	ticker := time.NewTicker(1 * time.Millisecond)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		for _, sid := range s.mux.GetStreams() {
-			data := s.mux.ReadStream(sid)
-			if len(data) > 0 {
-				s.connMu.RLock()
-				conn, exists := s.connections[sid]
-				s.connMu.RUnlock()
-				
-				if exists && conn != nil {
-					if _, err := conn.Write(data); err != nil {
-						s.mux.CloseStream(sid)
-						conn.Close()
-						s.connMu.Lock()
-						delete(s.connections, sid)
-						s.connMu.Unlock()
-					}
-				} else {
-					var req ConnectRequest
-					if err := json.Unmarshal(data, &req); err == nil && req.Cmd == "connect" {
-						s.connMu.Lock()
-						if oldConn, exists := s.connections[sid]; exists && oldConn != nil {
-							oldConn.Close()
+	for {
+		sids := s.mux.GetStreams()
+		
+		for _, sid := range sids {
+			go func(sid uint16) {
+				data := s.mux.ReadStream(sid)
+				if len(data) > 0 {
+					s.connMu.RLock()
+					conn, exists := s.connections[sid]
+					s.connMu.RUnlock()
+					
+					if exists && conn != nil {
+						if _, err := conn.Write(data); err != nil {
+							s.mux.CloseStream(sid)
+							conn.Close()
+							s.connMu.Lock()
+							delete(s.connections, sid)
+							s.connMu.Unlock()
 						}
-						s.connMu.Unlock()
-						go s.handleConnect(sid, req)
+					} else {
+						var req ConnectRequest
+						if err := json.Unmarshal(data, &req); err == nil && req.Cmd == "connect" {
+							s.connMu.Lock()
+							if oldConn, exists := s.connections[sid]; exists && oldConn != nil {
+								oldConn.Close()
+							}
+							s.connMu.Unlock()
+							go s.handleConnect(sid, req)
+						}
 					}
 				}
-			}
 
-			if s.mux.StreamClosed(sid) {
-				s.connMu.Lock()
-				conn, exists := s.connections[sid]
-				if exists && conn != nil {
-					conn.Close()
-					delete(s.connections, sid)
+				if s.mux.StreamClosed(sid) {
+					s.connMu.Lock()
+					conn, exists := s.connections[sid]
+					if exists && conn != nil {
+						conn.Close()
+						delete(s.connections, sid)
+					}
+					s.connMu.Unlock()
 				}
-				s.connMu.Unlock()
-			}
+			}(sid)
 		}
+		
+		time.Sleep(1 * time.Millisecond)
 	}
-
-	return nil
 }
 
 func (s *Server) handleConnect(sid uint16, req ConnectRequest) {

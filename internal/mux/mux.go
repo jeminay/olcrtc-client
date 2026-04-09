@@ -31,6 +31,8 @@ type Multiplexer struct {
 	mu            sync.RWMutex
 	maxStreams    int
 	maxBufferSize int
+	dataReady     map[uint16]chan struct{}
+	dataReadyMu   sync.Mutex
 }
 
 func New(clientID uint32, onSend func([]byte) error) *Multiplexer {
@@ -41,6 +43,7 @@ func New(clientID uint32, onSend func([]byte) error) *Multiplexer {
 		onSend:        onSend,
 		maxStreams:    10000,
 		maxBufferSize: 1024 * 1024,
+		dataReady:     make(map[uint16]chan struct{}),
 	}
 }
 
@@ -174,6 +177,15 @@ func (m *Multiplexer) HandleFrame(frame []byte) {
 	}
 	
 	stream.recvBuf = append(stream.recvBuf, data...)
+	
+	m.dataReadyMu.Lock()
+	if ch, ok := m.dataReady[sid]; ok {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+	m.dataReadyMu.Unlock()
 }
 
 func (m *Multiplexer) ReadStream(sid uint16) []byte {
@@ -232,4 +244,24 @@ func (m *Multiplexer) UpdateSendFunc(onSend func([]byte) error) {
 	defer m.mu.Unlock()
 	
 	m.onSend = onSend
+}
+
+func (m *Multiplexer) WaitForData(sid uint16) <-chan struct{} {
+	m.dataReadyMu.Lock()
+	defer m.dataReadyMu.Unlock()
+	
+	if _, ok := m.dataReady[sid]; !ok {
+		m.dataReady[sid] = make(chan struct{}, 1)
+	}
+	return m.dataReady[sid]
+}
+
+func (m *Multiplexer) CleanupDataChannel(sid uint16) {
+	m.dataReadyMu.Lock()
+	defer m.dataReadyMu.Unlock()
+	
+	if ch, ok := m.dataReady[sid]; ok {
+		close(ch)
+		delete(m.dataReady, sid)
+	}
 }
