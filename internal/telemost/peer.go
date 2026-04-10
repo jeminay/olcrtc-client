@@ -762,8 +762,8 @@ func (p *Peer) monitorQueue() {
 			if p.dc != nil {
 				buffered = p.dc.BufferedAmount()
 			}
-			if queueLen > 500 || buffered > 50*1024 {
-				log.Printf("[QUEUE_MONITOR] queue_len=%d dc_buffered=%d", queueLen, buffered)
+			if queueLen > 800 || buffered > 3*1024*1024 {
+				log.Printf("[QUEUE_MONITOR] queue_len=%d dc_buffered=%d MB", queueLen, buffered/(1024*1024))
 			}
 		case <-p.closeCh:
 			return
@@ -772,5 +772,10 @@ func (p *Peer) monitorQueue() {
 }
 
 func (p *Peer) CanSend() bool {
-	return len(p.sendQueue) < 3000
+	queueLen := len(p.sendQueue)
+	buffered := uint64(0)
+	if p.dc != nil {
+		buffered = p.dc.BufferedAmount()
+	}
+	return queueLen < 1000 && buffered < 3*1024*1024
 }

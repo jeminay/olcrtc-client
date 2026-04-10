@@ -259,7 +259,6 @@ func (s *Server) run(ctx context.Context) error {
 			go func(sid uint16) {
 				data := s.mux.ReadStream(sid)
 				if len(data) > 0 {
-					log.Printf("[SERVER] sid=%d READ_STREAM size=%d", sid, len(data))
 					s.connMu.RLock()
 					conn, exists := s.connections[sid]
 					s.connMu.RUnlock()
