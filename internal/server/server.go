@@ -13,12 +13,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pion/webrtc/v4"
 	"github.com/openlibrecommunity/olcrtc/internal/crypto"
 	"github.com/openlibrecommunity/olcrtc/internal/logger"
 	"github.com/openlibrecommunity/olcrtc/internal/mux"
 	"github.com/openlibrecommunity/olcrtc/internal/names"
 	"github.com/openlibrecommunity/olcrtc/internal/telemost"
+	"github.com/pion/webrtc/v4"
 )
 
 type Server struct {
@@ -41,6 +41,9 @@ type ConnectRequest struct {
 }
 
 func Run(ctx context.Context, roomURL, keyHex string, duo bool, dnsServer string) error {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	var key []byte
 	var err error
 
@@ -76,11 +79,11 @@ func Run(ctx context.Context, roomURL, keyHex string, duo bool, dnsServer string
 		peers:       make([]*telemost.Peer, 0),
 		dnsServer:   dnsServer,
 	}
-	
+
 	if dnsServer == "" {
 		dnsServer = "1.1.1.1:53"
 	}
-	
+
 	s.resolver = &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -109,7 +112,7 @@ func Run(ctx context.Context, roomURL, keyHex string, duo bool, dnsServer string
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
-		
+
 		encrypted, err := s.cipher.Encrypt(frame)
 		if err != nil {
 			return err
@@ -123,11 +126,15 @@ func Run(ctx context.Context, roomURL, keyHex string, duo bool, dnsServer string
 		if err != nil {
 			return err
 		}
+		peer.SetEndedCallback(func(reason string) {
+			log.Printf("Server peer %d reported conference end: %s", i, reason)
+			cancel()
+		})
 		s.peers = append(s.peers, peer)
 
 		peer.SetReconnectCallback(func(dc *webrtc.DataChannel) {
 			log.Printf("Server peer %d reconnected - resetting multiplexer state", i)
-			
+
 			s.connMu.Lock()
 			for sid, conn := range s.connections {
 				if conn != nil {
@@ -136,7 +143,7 @@ func Run(ctx context.Context, roomURL, keyHex string, duo bool, dnsServer string
 				delete(s.connections, sid)
 			}
 			s.connMu.Unlock()
-			
+
 			if dc != nil {
 				s.mux.UpdateSendFunc(func(frame []byte) error {
 					encrypted, err := s.cipher.Encrypt(frame)
@@ -147,14 +154,14 @@ func Run(ctx context.Context, roomURL, keyHex string, duo bool, dnsServer string
 					return s.peers[idx].Send(encrypted)
 				})
 			}
-			
+
 			s.mux.Reset()
-			
+
 			log.Println("Server multiplexer reset complete")
 		})
 
 		log.Printf("Connecting peer %d to Telemost...", i)
-		if err := peer.Connect(ctx); err != nil {
+		if err := peer.Connect(runCtx); err != nil {
 			return err
 		}
 		log.Printf("Peer %d connected", i)
@@ -162,16 +169,16 @@ func Run(ctx context.Context, roomURL, keyHex string, duo bool, dnsServer string
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			peer.WatchConnection(ctx)
+			peer.WatchConnection(runCtx)
 		}()
 	}
 
-	err = s.run(ctx)
-	
+	err = s.run(runCtx)
+
 	log.Println("Waiting for server goroutines...")
 	s.wg.Wait()
 	log.Println("Server goroutines finished")
-	
+
 	return err
 }
 
@@ -186,7 +193,7 @@ func (s *Server) onData(data []byte) {
 		clientID := binary.BigEndian.Uint32(plaintext[0:4])
 		sid := binary.BigEndian.Uint16(plaintext[4:6])
 		length := binary.BigEndian.Uint16(plaintext[6:8])
-		
+
 		if sid == 0xFFFF && length == 0xFFFF {
 			log.Printf("Received reset signal from client (clientID=%d) - cleaning up", clientID)
 			s.connMu.Lock()
@@ -205,7 +212,7 @@ func (s *Server) onData(data []byte) {
 		clientID := binary.BigEndian.Uint32(plaintext[0:4])
 		sid := binary.BigEndian.Uint16(plaintext[4:6])
 		length := binary.BigEndian.Uint16(plaintext[6:8])
-		
+
 		if sid == 0xFFFF && length == 0xFFFF {
 			log.Printf("Received reset signal from client (clientID=%d) - cleaning up", clientID)
 			s.connMu.Lock()
@@ -228,7 +235,7 @@ func (s *Server) onData(data []byte) {
 func (s *Server) run(ctx context.Context) error {
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -240,21 +247,21 @@ func (s *Server) run(ctx context.Context) error {
 				}
 			}
 			s.connMu.Unlock()
-			
+
 			log.Printf("Closing %d peer(s)...", len(s.peers))
 			for i, peer := range s.peers {
 				log.Printf("Closing peer %d...", i)
 				peer.Close()
 			}
 			log.Println("All peers closed")
-			
+
 			return nil
-			
+
 		case <-ticker.C:
 		}
-		
+
 		sids := s.mux.GetStreams()
-		
+
 		for _, sid := range sids {
 			go func(sid uint16) {
 				data := s.mux.ReadStream(sid)
@@ -262,7 +269,7 @@ func (s *Server) run(ctx context.Context) error {
 					s.connMu.RLock()
 					conn, exists := s.connections[sid]
 					s.connMu.RUnlock()
-					
+
 					if exists && conn != nil {
 						if _, err := conn.Write(data); err != nil {
 							s.mux.CloseStream(sid)
@@ -315,28 +322,28 @@ func (s *Server) handleConnect(sid uint16, req ConnectRequest) {
 	s.connMu.Unlock()
 
 	dialStart := time.Now()
-	
+
 	dialer := &net.Dialer{
 		Timeout:   10 * time.Second,
 		KeepAlive: 30 * time.Second,
 		Resolver:  s.resolver,
 	}
-	
+
 	conn, err := dialer.Dial("tcp4", addr)
 	dialElapsed := time.Since(dialStart)
-	
+
 	if err != nil {
 		log.Printf("[SERVER] sid=%d CONNECT_FAILED dial_time=%v total_elapsed=%v err=%v", sid, dialElapsed, time.Since(startTime), err)
 		go s.mux.CloseStream(sid)
 		return
 	}
-	
+
 	logger.Verbose("TCP dial took %v for sid=%d", dialElapsed, sid)
-	
+
 	s.connMu.Lock()
 	s.connections[sid] = conn
 	s.connMu.Unlock()
-	
+
 	log.Printf("[SERVER] sid=%d CONNECT_SUCCESS dial_time=%v", sid, dialElapsed)
 
 	s.mux.SendData(sid, []byte{0x00})
@@ -348,11 +355,11 @@ func (s *Server) handleConnect(sid uint16, req ConnectRequest) {
 			delete(s.connections, sid)
 			s.connMu.Unlock()
 		}()
-		
+
 		buf := make([]byte, 16384)
 		totalSent := uint64(0)
 		lastLog := time.Now()
-		
+
 		for {
 			n, err := conn.Read(buf)
 			if err != nil {
@@ -361,7 +368,7 @@ func (s *Server) handleConnect(sid uint16, req ConnectRequest) {
 				}
 				return
 			}
-			
+
 			for !s.canSendData() {
 				time.Sleep(20 * time.Millisecond)
 			}
@@ -369,7 +376,7 @@ func (s *Server) handleConnect(sid uint16, req ConnectRequest) {
 			if err := s.mux.SendData(sid, buf[:n]); err != nil {
 				return
 			}
-			
+
 			totalSent += uint64(n)
 			if time.Since(lastLog) > 5*time.Second {
 				log.Printf("[SERVER] sid=%d TRANSFER_PROGRESS sent=%d MB", sid, totalSent/(1024*1024))

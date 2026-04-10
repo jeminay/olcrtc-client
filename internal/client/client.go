@@ -14,12 +14,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pion/webrtc/v4"
 	"github.com/openlibrecommunity/olcrtc/internal/crypto"
 	"github.com/openlibrecommunity/olcrtc/internal/logger"
 	"github.com/openlibrecommunity/olcrtc/internal/mux"
 	"github.com/openlibrecommunity/olcrtc/internal/names"
 	"github.com/openlibrecommunity/olcrtc/internal/telemost"
+	"github.com/pion/webrtc/v4"
 )
 
 type Client struct {
@@ -32,6 +32,9 @@ type Client struct {
 }
 
 func Run(ctx context.Context, roomURL, keyHex string, socksPort int, duo bool, socksUser, socksPass string) error {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	var key []byte
 	var err error
 
@@ -89,12 +92,12 @@ func Run(ctx context.Context, roomURL, keyHex string, socksPort int, duo bool, s
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
-		
+
 		encrypted, err := c.cipher.Encrypt(frame)
 		if err != nil {
 			return err
 		}
-		
+
 		idx := c.peerIdx.Add(1) % uint32(len(c.peers))
 		return c.peers[idx].Send(encrypted)
 	})
@@ -104,11 +107,15 @@ func Run(ctx context.Context, roomURL, keyHex string, socksPort int, duo bool, s
 		if err != nil {
 			return err
 		}
+		peer.SetEndedCallback(func(reason string) {
+			log.Printf("Client peer %d reported conference end: %s", i, reason)
+			cancel()
+		})
 		c.peers = append(c.peers, peer)
 
 		peer.SetReconnectCallback(func(dc *webrtc.DataChannel) {
 			log.Printf("Client peer %d reconnected - resetting multiplexer state", i)
-			
+
 			c.mux.UpdateSendFunc(func(frame []byte) error {
 				encrypted, err := c.cipher.Encrypt(frame)
 				if err != nil {
@@ -117,14 +124,14 @@ func Run(ctx context.Context, roomURL, keyHex string, socksPort int, duo bool, s
 				idx := c.peerIdx.Add(1) % uint32(len(c.peers))
 				return c.peers[idx].Send(encrypted)
 			})
-			
+
 			c.mux.Reset()
-			
+
 			log.Println("Client multiplexer reset complete")
 		})
 
 		log.Printf("Connecting peer %d to Telemost...", i)
-		if err := peer.Connect(ctx); err != nil {
+		if err := peer.Connect(runCtx); err != nil {
 			return err
 		}
 		log.Printf("Peer %d connected", i)
@@ -132,30 +139,30 @@ func Run(ctx context.Context, roomURL, keyHex string, socksPort int, duo bool, s
 		c.wg.Add(1)
 		go func() {
 			defer c.wg.Done()
-			peer.WatchConnection(ctx)
+			peer.WatchConnection(runCtx)
 		}()
 	}
 
 	time.Sleep(100 * time.Millisecond)
-	
+
 	resetFrame := make([]byte, 12)
 	binary.BigEndian.PutUint32(resetFrame[0:4], c.clientID)
 	binary.BigEndian.PutUint16(resetFrame[4:6], 0xFFFF)
 	binary.BigEndian.PutUint16(resetFrame[6:8], 0xFFFF)
 	binary.BigEndian.PutUint32(resetFrame[8:12], 0)
 	encrypted, _ := cipher.Encrypt(resetFrame)
-	
+
 	for _, peer := range c.peers {
 		peer.Send(encrypted)
 	}
 	log.Printf("Sent reset signal to server (clientID=%d)", c.clientID)
 
-	err = c.runSOCKS5(ctx, socksPort, socksUser, socksPass)
-	
+	err = c.runSOCKS5(runCtx, socksPort, socksUser, socksPass)
+
 	log.Println("Waiting for client goroutines...")
 	c.wg.Wait()
 	log.Println("Client goroutines finished")
-	
+
 	return err
 }
 

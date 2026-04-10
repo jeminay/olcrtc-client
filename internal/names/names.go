@@ -76,11 +76,11 @@ func init() {
 }
 
 func LoadNameFiles(firstPath, lastPath string) error {
-	if names, err := loadNames(firstPath); err == nil {
+	if names, err := loadNames(firstPath); err == nil && len(names) > 0 {
 		firstNames = names
 	}
 
-	if names, err := loadNames(lastPath); err == nil {
+	if names, err := loadNames(lastPath); err == nil && len(names) > 0 {
 		lastNames = names
 	}
 
@@ -88,6 +88,13 @@ func LoadNameFiles(firstPath, lastPath string) error {
 }
 
 func Generate() string {
+	if len(firstNames) == 0 {
+		firstNames = defaultFirstNames
+	}
+	if len(lastNames) == 0 {
+		lastNames = defaultLastNames
+	}
+
 	first := firstNames[rand.IntN(len(firstNames))]
 	last := lastNames[rand.IntN(len(lastNames))]
 

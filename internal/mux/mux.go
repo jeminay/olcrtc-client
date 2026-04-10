@@ -87,7 +87,8 @@ func (m *Multiplexer) SendData(sid uint16, data []byte) error {
 		return nil
 	}
 
-	const chunkSize = 7168
+	// Keep encrypted DataChannel messages below Telemost's observed 8 KiB cap.
+	const chunkSize = 7000
 	totalChunks := (len(data) + chunkSize - 1) / chunkSize
 
 	if totalChunks > 10 {
