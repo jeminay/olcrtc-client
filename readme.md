@@ -28,10 +28,10 @@ or wait for the release or at least a beta
 
 ```bash
 # server ( podman, pre configured, easy )
-./srv.sh
+./script/srv.sh
 
 # client ( podman, pre configured, easy   
-./cnc.sh
+./script/cnc.sh
 
 # or native ( no podman ) linux
 GOOS=linux GOARCH=amd64 go build ./cmd/olcrtc
@@ -42,16 +42,19 @@ GOOS=android GOARCH=arm64 go build -ldflags="-checklinkname=0" -o build/olcrtc .
 # or native ( no podman ) windows
 GOOS=windows GOARCH=amd64 go build ./cmd/olcrtc
 
-#Also there's a client UI version (currently in beta)
-./ui.sh
-#And then
-./olcrtc-ui
+
+# Also there's a client UI version (currently in beta)
+./script/ui.sh
+
+# And then
+./build/olcrtc-ui
+
+```
 
 <div align="center">
 
 ---
 
-### Contact
 
 Telegram: [zarazaex](https://t.me/zarazaexe)
 <br>
