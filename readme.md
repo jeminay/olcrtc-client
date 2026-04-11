@@ -42,8 +42,10 @@ GOOS=android GOARCH=arm64 go build -ldflags="-checklinkname=0" -o build/olcrtc .
 # or native ( no podman ) windows
 GOOS=windows GOARCH=amd64 go build ./cmd/olcrtc
 
-
-```
+#Also there's a client UI version (currently in beta)
+./ui.sh
+#And then
+./olcrtc-ui
 
 <div align="center">
 
