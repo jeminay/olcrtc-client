@@ -63,11 +63,11 @@ func (p *Program) buildRunString(conferenceId, encryptionKey, socksPort, dns str
 	log("  DNS Server: %s", dns)
 	switch p.Config.Os {
 	case "windows":
-		p.RunString = fmt.Sprintf("olcrtc.exe -mode cnc -id \"%s\" -key \"%s\" -socks-port %s", conferenceId, encryptionKey, socksPort)
+		p.RunString = fmt.Sprintf("olcrtc.exe -mode cnc -id \"%s\" -key \"%s\" -socks-port %s  -dns %s", conferenceId, encryptionKey, socksPort, dns)
 	case "linux", "darwin":
-		p.RunString = fmt.Sprintf("./olcrtc -mode cnc -id \"%s\" -key \"%s\" -socks-port %s", conferenceId, encryptionKey, socksPort)
+		p.RunString = fmt.Sprintf("./olcrtc -mode cnc -id \"%s\" -key \"%s\" -socks-port %s -dns %s", conferenceId, encryptionKey, socksPort, dns)
 	default: // in case for freeBSD and etc
-		p.RunString = fmt.Sprintf("olcrtc -mode cnc -id \"%s\" -key \"%s\" -socks-port %s", conferenceId, encryptionKey, socksPort)
+		p.RunString = fmt.Sprintf("olcrtc -mode cnc -id \"%s\" -key \"%s\" -socks-port %s -dns %s", conferenceId, encryptionKey, socksPort, dns)
 	}
 	log("Generated command: %s", p.RunString)
 }
