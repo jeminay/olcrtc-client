@@ -60,7 +60,29 @@ func (p *Program) olcrtcStop() {
 	if err != nil {
 		log("ERROR: Failed to signal olcrtc: %v", err)
 		p.showError(err)
-	} else {
-		log("olcrtc process termination signal sent (PID: %d)", p.Cmd.Process.Pid)
+		return
+	}
+
+	log("olcrtc process termination signal sent (PID: %d)", p.Cmd.Process.Pid)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- p.Cmd.Wait()
+	}()
+
+	select {
+	case <-time.After(5 * time.Second):
+		log("WARNING: Process did not exit gracefully, forcing kill...")
+		if err := p.Cmd.Process.Kill(); err != nil {
+			log("ERROR: Failed to kill olcrtc: %v", err)
+		} else {
+			log("olcrtc process forcefully killed (PID: %d)", p.Cmd.Process.Pid)
+		}
+	case err := <-done:
+		if err != nil {
+			log("olcrtc process exited with error: %v", err)
+		} else {
+			log("olcrtc process exited gracefully")
+		}
 	}
 }
