@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"sync"
@@ -21,18 +22,20 @@ import (
 )
 
 type Server struct {
-	peers       []*telemost.Peer
-	cipher      *crypto.Cipher
-	mux         *mux.Multiplexer
-	connections map[uint16]net.Conn
-	connMu      sync.RWMutex
-	streamPumps map[uint16]net.Conn
-	pumpMu      sync.Mutex
-	peerIdx     atomic.Uint32
-	wg          sync.WaitGroup
-	dnsServer   string
-	dnsCache    sync.Map
-	resolver    *net.Resolver
+	peers          []*telemost.Peer
+	cipher         *crypto.Cipher
+	mux            *mux.Multiplexer
+	connections    map[uint16]net.Conn
+	connMu         sync.RWMutex
+	streamPumps    map[uint16]net.Conn
+	pumpMu         sync.Mutex
+	peerIdx        atomic.Uint32
+	wg             sync.WaitGroup
+	dnsServer      string
+	dnsCache       sync.Map
+	resolver       *net.Resolver
+	socksProxyAddr string
+	socksProxyPort int
 }
 
 type ConnectRequest struct {
@@ -41,10 +44,9 @@ type ConnectRequest struct {
 	Port int    `json:"port"`
 }
 
-func Run(ctx context.Context, roomURL, keyHex string, duo bool, dnsServer string) error {
+func Run(ctx context.Context, roomURL, keyHex string, duo bool, dnsServer, socksProxyAddr string, socksProxyPort int) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-
 	var key []byte
 	var err error
 
@@ -75,11 +77,13 @@ func Run(ctx context.Context, roomURL, keyHex string, duo bool, dnsServer string
 	}
 
 	s := &Server{
-		cipher:      cipher,
-		connections: make(map[uint16]net.Conn),
-		streamPumps: make(map[uint16]net.Conn),
-		peers:       make([]*telemost.Peer, 0),
-		dnsServer:   dnsServer,
+		cipher:         cipher,
+		connections:    make(map[uint16]net.Conn),
+		streamPumps:    make(map[uint16]net.Conn),
+		peers:          make([]*telemost.Peer, 0),
+		dnsServer:      dnsServer,
+		socksProxyAddr: socksProxyAddr,
+		socksProxyPort: socksProxyPort,
 	}
 
 	if dnsServer == "" {
@@ -189,6 +193,39 @@ func Run(ctx context.Context, roomURL, keyHex string, duo bool, dnsServer string
 	return err
 }
 
+func (s *Server) socks5Connect(conn net.Conn, targetAddr string, targetPort int) error {
+	if _, err := conn.Write([]byte{5, 1, 0}); err != nil {
+		return err
+	}
+
+	resp := make([]byte, 2)
+	if _, err := io.ReadFull(conn, resp); err != nil {
+		return err
+	}
+	if resp[0] != 5 || resp[1] != 0 {
+		return fmt.Errorf("SOCKS5 auth failed")
+	}
+
+	req := []byte{5, 1, 0, 3}
+	req = append(req, byte(len(targetAddr)))
+	req = append(req, []byte(targetAddr)...)
+	req = append(req, byte(targetPort>>8), byte(targetPort))
+
+	if _, err := conn.Write(req); err != nil {
+		return err
+	}
+
+	resp = make([]byte, 10)
+	if _, err := io.ReadFull(conn, resp); err != nil {
+		return err
+	}
+	if resp[0] != 5 || resp[1] != 0 {
+		return fmt.Errorf("SOCKS5 connect failed: %d", resp[1])
+	}
+
+	return nil
+}
+
 func (s *Server) onData(data []byte) {
 	plaintext, err := s.cipher.Decrypt(data)
 	if err != nil {
@@ -246,7 +283,6 @@ func (s *Server) run(ctx context.Context) error {
 
 		case <-ticker.C:
 		}
-
 		sids := s.mux.GetStreams()
 
 		for _, sid := range sids {
@@ -337,14 +373,32 @@ func (s *Server) handleConnect(ctx context.Context, sid uint16, req ConnectReque
 	s.connMu.Unlock()
 
 	dialStart := time.Now()
+	var conn net.Conn
+	var err error
 
-	dialer := &net.Dialer{
-		Timeout:   10 * time.Second,
-		KeepAlive: 30 * time.Second,
-		Resolver:  s.resolver,
+	if s.socksProxyAddr == "" {
+		dialer := &net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+			Resolver:  s.resolver,
+		}
+		conn, err = dialer.Dial("tcp4", addr)
+		logger.Verbose("TCP dial took %v for sid=%d (direct)", time.Since(dialStart), sid)
+	} else {
+		proxyAddr := fmt.Sprintf("%s:%d", s.socksProxyAddr, s.socksProxyPort)
+		dialer := &net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}
+		conn, err = dialer.Dial("tcp4", proxyAddr)
+		if err == nil {
+			if err := s.socks5Connect(conn, req.Addr, req.Port); err != nil {
+				conn.Close()
+				err = fmt.Errorf("SOCKS5 connect failed: %v", err)
+			}
+		}
+		logger.Verbose("SOCKS5 proxy dial took %v for sid=%d", time.Since(dialStart), sid)
 	}
-
-	conn, err := dialer.Dial("tcp4", addr)
 	dialElapsed := time.Since(dialStart)
 
 	if err != nil {
@@ -354,7 +408,6 @@ func (s *Server) handleConnect(ctx context.Context, sid uint16, req ConnectReque
 	}
 
 	logger.Verbose("TCP dial took %v for sid=%d", dialElapsed, sid)
-
 	s.connMu.Lock()
 	s.connections[sid] = conn
 	s.connMu.Unlock()
