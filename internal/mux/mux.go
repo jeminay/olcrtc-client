@@ -108,7 +108,7 @@ func (m *Multiplexer) SendData(sid uint16, data []byte) error { //nolint:revive
 	totalChunks := (len(data) + chunkSize - 1) / chunkSize
 
 	if totalChunks > 10 {
-		logger.Debug("SendData: sid=%d, size=%d bytes, chunks=%d", sid, len(data), totalChunks)
+		logger.Debugf("SendData: sid=%d, size=%d bytes, chunks=%d", sid, len(data), totalChunks)
 	}
 
 	for i := 0; i < len(data); i += chunkSize {
@@ -297,7 +297,7 @@ func (m *Multiplexer) applyOutOfOrder(stream *Stream, sid uint16, clientID uint3
 		stream.recvBuf = append(stream.recvBuf, nextData...)
 		delete(stream.outOfOrder, stream.nextSeq)
 		stream.nextSeq++
-		logger.Verbose("Applied out-of-order packet sid=%d seq=%d", sid, stream.nextSeq-1)
+		logger.Verbosef("Applied out-of-order packet sid=%d seq=%d", sid, stream.nextSeq-1)
 	}
 }
 
@@ -317,7 +317,7 @@ func (m *Multiplexer) handleControlFrame(control ControlFrame) {
 	case ControlResetClient:
 		m.ResetClient(control.ClientID)
 	default:
-		logger.Debug("Unknown mux control frame type=%d clientID=%d", control.Type, control.ClientID)
+		logger.Debugf("Unknown mux control frame type=%d clientID=%d", control.Type, control.ClientID)
 	}
 }
 

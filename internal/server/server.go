@@ -273,7 +273,7 @@ func (s *Server) socks5Connect(conn net.Conn, targetAddr string, targetPort int)
 func (s *Server) onData(data []byte) {
 	plaintext, err := s.cipher.Decrypt(data)
 	if err != nil {
-		logger.Debug("Decrypt error: %v", err)
+		logger.Debugf("Decrypt error: %v", err)
 		return
 	}
 

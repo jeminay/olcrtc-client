@@ -15,13 +15,13 @@ func IsVerbose() bool { //nolint:revive
 	return verboseEnabled.Load()
 }
 
-func Verbose(format string, v ...interface{}) { //nolint:revive
+func Verbosef(format string, v ...interface{}) { //nolint:revive
 	if verboseEnabled.Load() {
 		log.Printf("[VERBOSE] "+format, v...)
 	}
 }
 
-func Debug(format string, v ...interface{}) { //nolint:revive
+func Debugf(format string, v ...interface{}) { //nolint:revive
 	if verboseEnabled.Load() {
 		log.Printf("[DEBUG] "+format, v...)
 	}

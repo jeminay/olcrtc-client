@@ -635,7 +635,7 @@ func (p *Peer) startTelemetry(serverHello map[string]interface{}) {
 		endpoint, _ = cfg["url"].(string)
 	}
 	if endpoint == "" {
-		logger.Verbose("Telemetry configuration has no endpoint; skipping XHR simulation")
+		logger.Verbosef("Telemetry configuration has no endpoint; skipping XHR simulation")
 		return
 	}
 
@@ -700,7 +700,7 @@ func (p *Peer) sendTelemetry(endpoint, event string) {
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		logger.Verbose("Telemetry request skipped: %v", err)
+		logger.Verbosef("Telemetry request skipped: %v", err)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -715,12 +715,12 @@ func (p *Peer) sendTelemetry(endpoint, event string) {
 	client := protect.NewHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.Verbose("Telemetry send failed: %v", err)
+		logger.Verbosef("Telemetry send failed: %v", err)
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
-		logger.Verbose("Telemetry endpoint returned %s", resp.Status)
+		logger.Verbosef("Telemetry endpoint returned %s", resp.Status)
 	}
 }
 
@@ -1085,7 +1085,7 @@ func (p *Peer) processSendQueue(workerID int, sessionCloseCh <-chan struct{}) {
 				time.Sleep(10 * time.Millisecond)
 			}
 			if waited := time.Since(waitStart); waited > 500*time.Millisecond {
-				logger.Verbose("[WORKER-%d] Buffer drained after %v", workerID, waited)
+				logger.Verbosef("[WORKER-%d] Buffer drained after %v", workerID, waited)
 			}
 
 			if p.dc == nil || p.dc.ReadyState() != webrtc.DataChannelStateOpen {
@@ -1101,7 +1101,7 @@ func (p *Peer) processSendQueue(workerID int, sessionCloseCh <-chan struct{}) {
 					log.Printf("[WORKER-%d] Sent %d bytes in %v (buffered: %d)",
 						workerID, len(data), elapsed, p.dc.BufferedAmount())
 				} else {
-					logger.Verbose("[WORKER-%d] Sent %d bytes (buffered: %d)",
+					logger.Verbosef("[WORKER-%d] Sent %d bytes (buffered: %d)",
 						workerID, len(data), p.dc.BufferedAmount())
 				}
 			}
