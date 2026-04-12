@@ -30,6 +30,7 @@ type Server struct {
 	streamPumps    map[uint16]net.Conn
 	pumpMu         sync.Mutex
 	peerIdx        atomic.Uint32
+	activeClients  atomic.Int32
 	wg             sync.WaitGroup
 	dnsServer      string
 	dnsCache       sync.Map
@@ -169,6 +170,10 @@ func Run(ctx context.Context, roomURL, keyHex string, duo bool, dnsServer, socks
 			s.mux.Reset()
 
 			log.Println("Server multiplexer reset complete")
+		})
+
+		peer.SetShouldReconnect(func() bool {
+			return s.activeClients.Load() > 0
 		})
 
 		log.Printf("Connecting peer %d to Telemost...", peerID)
@@ -414,11 +419,13 @@ func (s *Server) handleConnect(ctx context.Context, sid uint16, req ConnectReque
 
 	log.Printf("[SERVER] sid=%d CONNECT_SUCCESS dial_time=%v", sid, dialElapsed)
 
+	s.activeClients.Add(1)
 	s.mux.SendData(sid, []byte{0x00})
 	s.startStreamPump(ctx, sid, conn)
 
 	go func() {
 		defer func() {
+			s.activeClients.Add(-1)
 			s.mux.CloseStream(sid)
 			s.connMu.Lock()
 			delete(s.connections, sid)

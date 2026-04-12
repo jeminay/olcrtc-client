@@ -44,6 +44,7 @@ type Peer struct {
 	dc              *webrtc.DataChannel
 	onData          func([]byte)
 	onReconnect     func(*webrtc.DataChannel)
+	shouldReconnect func() bool
 	reconnectCh     chan struct{}
 	closeCh         chan struct{}
 	keepAliveCh     chan struct{}
@@ -129,6 +130,10 @@ func closeSignal(ch chan struct{}) {
 
 func (p *Peer) queueReconnect() {
 	if p.closed.Load() || p.reconnecting.Load() {
+		return
+	}
+	if p.shouldReconnect != nil && !p.shouldReconnect() {
+		log.Println("Reconnect skipped: shouldReconnect returned false")
 		return
 	}
 	select {
@@ -981,6 +986,10 @@ func (p *Peer) reconnect(ctx context.Context) error {
 
 func (p *Peer) SetReconnectCallback(cb func(*webrtc.DataChannel)) {
 	p.onReconnect = cb
+}
+
+func (p *Peer) SetShouldReconnect(fn func() bool) {
+	p.shouldReconnect = fn
 }
 
 func (p *Peer) WatchConnection(ctx context.Context) {
