@@ -1,4 +1,3 @@
-// Package server provides the core server logic for olcrtc.
 package server
 
 import (
@@ -11,7 +10,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,15 +22,21 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-var ( //nolint:revive
+var (
 	// ErrKeySize is returned when the encryption key is not 32 bytes.
-	ErrKeySize             = errors.New("key must be 32 bytes")
-	ErrKeyStringLength     = errors.New("key string length must be 32")
-	ErrSocks5AuthFailed    = errors.New("SOCKS5 auth failed")
+	ErrKeySize = errors.New("key must be 32 bytes")
+	// ErrKeyStringLength is returned when the encryption key string length is not 32.
+	ErrKeyStringLength = errors.New("key string length must be 32")
+	// ErrSocks5AuthFailed is returned when SOCKS5 authentication fails.
+	ErrSocks5AuthFailed = errors.New("SOCKS5 auth failed")
+	// ErrSocks5ConnectFailed is returned when SOCKS5 connection fails.
 	ErrSocks5ConnectFailed = errors.New("SOCKS5 connect failed")
-	ErrNoPeers             = errors.New("no peers available")
-	ErrDialProxy           = errors.New("failed to dial proxy")
-	ErrEncryptFailed       = errors.New("encrypt failed")
+	// ErrNoPeers is returned when no peers are available.
+	ErrNoPeers = errors.New("no peers available")
+	// ErrDialProxy is returned when dialing the proxy fails.
+	ErrDialProxy = errors.New("failed to dial proxy")
+	// ErrEncryptFailed is returned when encryption fails.
+	ErrEncryptFailed = errors.New("encrypt failed")
 )
 
 type Server struct { //nolint:revive
@@ -173,7 +177,7 @@ func (s *Server) setupMux() {
 		if len(s.peers) == 0 {
 			return ErrNoPeers
 		}
-		idx := s.peerIdx.Add(1) % uint32(len(s.peers)) //nolint:gosec
+		idx := s.peerIdx.Add(1) % uint32(len(s.peers))
 		return s.peers[idx].Send(encrypted)
 	})
 }
@@ -237,7 +241,7 @@ func (s *Server) handlePeerReconnect(peerID int, dc *webrtc.DataChannel) {
 			if len(s.peers) == 0 {
 				return ErrNoPeers
 			}
-			idx := s.peerIdx.Add(1) % uint32(len(s.peers)) //nolint:gosec
+			idx := s.peerIdx.Add(1) % uint32(len(s.peers))
 			return s.peers[idx].Send(encrypted)
 		})
 	}
@@ -268,7 +272,7 @@ func (s *Server) socks5Connect(conn net.Conn, targetAddr string, targetPort int)
 	req := make([]byte, 0, 7+addrLen)
 	req = append(req, 5, 1, 0, 3, byte(addrLen))
 	req = append(req, []byte(targetAddr)...)
-	req = append(req, byte(targetPort>>8), byte(targetPort)) //nolint:gosec
+	req = append(req, byte(targetPort>>8), byte(targetPort))
 
 	if _, err := conn.Write(req); err != nil {
 		return fmt.Errorf("failed to write socks5 connect req: %w", err)
@@ -421,7 +425,7 @@ func (s *Server) unmarkStreamPump(sid uint16, conn net.Conn) {
 
 func (s *Server) handleConnect(ctx context.Context, sid uint16, req ConnectRequest) {
 	startTime := time.Now()
-	addr := net.JoinHostPort(req.Addr, strconv.Itoa(req.Port))
+	addr := net.JoinHostPort(req.Addr, fmt.Sprintf("%d", req.Port))
 	log.Printf("[SERVER] sid=%d CONNECT_START %s", sid, addr)
 
 	s.closeStreamConnection(sid)
@@ -451,7 +455,7 @@ func (s *Server) handleConnect(ctx context.Context, sid uint16, req ConnectReque
 }
 
 func (s *Server) dial(req ConnectRequest) (net.Conn, error) {
-	addr := net.JoinHostPort(req.Addr, strconv.Itoa(req.Port))
+	addr := net.JoinHostPort(req.Addr, fmt.Sprintf("%d", req.Port))
 	if s.socksProxyAddr == "" {
 		dialer := &net.Dialer{
 			Timeout:   10 * time.Second,
@@ -465,14 +469,14 @@ func (s *Server) dial(req ConnectRequest) (net.Conn, error) {
 		return conn, nil
 	}
 
-	proxyAddr := net.JoinHostPort(s.socksProxyAddr, strconv.Itoa(s.socksProxyPort))
+	proxyAddr := net.JoinHostPort(s.socksProxyAddr, fmt.Sprintf("%d", s.socksProxyPort))
 	dialer := &net.Dialer{
 		Timeout:   10 * time.Second,
 		KeepAlive: 30 * time.Second,
 	}
 	conn, err := dialer.Dial("tcp4", proxyAddr)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrDialProxy, err)
+		return nil, fmt.Errorf("failed to dial proxy: %w", err)
 	}
 
 	if err := s.socks5Connect(conn, req.Addr, req.Port); err != nil {
@@ -512,7 +516,7 @@ func (s *Server) pumpToMux(sid uint16, conn net.Conn) {
 			return
 		}
 
-		totalSent += uint64(n) //nolint:gosec
+		totalSent += uint64(n)
 		if time.Since(lastLog) > 5*time.Second {
 			log.Printf("[SERVER] sid=%d TRANSFER_UP sent=%d MB", sid, totalSent/(1024*1024))
 			lastLog = time.Now()

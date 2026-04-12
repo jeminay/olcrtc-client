@@ -28,15 +28,19 @@ const (
 	defaultTelemetryInterval    = 20 * time.Second
 )
 
-var ( //nolint:revive
+var (
 	// ErrDataChannelTimeout is returned when the datachannel fails to open within the timeout.
-	ErrDataChannelTimeout  = errors.New("datachannel timeout")
-// ErrDataChannelNotReady is returned when the datachannel is not open.
+	ErrDataChannelTimeout = errors.New("datachannel timeout")
+	// ErrDataChannelNotReady is returned when the datachannel is not open.
 	ErrDataChannelNotReady = errors.New("datachannel not ready")
-	ErrSendQueueClosed     = errors.New("send queue closed")
-	ErrSendQueueTimeout    = errors.New("send queue timeout")
-	ErrSessionClosed       = errors.New("session closed")
-	ErrPeerClosed          = errors.New("peer closed")
+	// ErrSendQueueClosed is returned when the send queue is closed.
+	ErrSendQueueClosed = errors.New("send queue closed")
+	// ErrSendQueueTimeout is returned when sending to the queue times out.
+	ErrSendQueueTimeout = errors.New("send queue timeout")
+	// ErrSessionClosed is returned when the session is closed.
+	ErrSessionClosed = errors.New("session closed")
+	// ErrPeerClosed is returned when the peer is closed.
+	ErrPeerClosed = errors.New("peer closed")
 )
 
 type TrafficShape struct { //nolint:revive
@@ -405,7 +409,7 @@ func (p *Peer) sendHello() error {
 	return nil
 }
 
-func (p *Peer) handleSignaling(ctx context.Context) { //nolint:cyclop
+func (p *Peer) handleSignaling(ctx context.Context) { //nolint:revive,cyclop
 	pubSent := false
 
 	for {
@@ -840,7 +844,7 @@ func (p *Peer) sendLeave(uid string) bool {
 	return true
 }
 
-func (p *Peer) Close() error { //nolint:revive
+func (p *Peer) Close() error { //nolint:revive,cyclop
 	log.Println("Closing peer...")
 	alreadyClosing := p.closed.Swap(true)
 	p.sendQueueClosed.Store(true)
