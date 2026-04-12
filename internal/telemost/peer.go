@@ -532,7 +532,7 @@ func (p *Peer) handleSdpOffer(offer map[string]interface{}, uid string) error {
 func (p *Peer) handleSdpAnswer(answer map[string]interface{}, uid string) {
 	sdp, _ := answer["sdp"].(string)
 	if err := p.pcPub.SetRemoteDescription(webrtc.SessionDescription{
-		Type: webrtc.SDTypeAnswer,
+		Type: webrtc.SDPTypeAnswer,
 		SDP:  sdp,
 	}); err != nil {
 		log.Printf("SetRemoteDescription error: %v", err)
