@@ -1,3 +1,4 @@
+// Package server implements the olcrtc tunnel server logic.
 package server
 
 import (
@@ -10,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -425,7 +427,7 @@ func (s *Server) unmarkStreamPump(sid uint16, conn net.Conn) {
 
 func (s *Server) handleConnect(ctx context.Context, sid uint16, req ConnectRequest) {
 	startTime := time.Now()
-	addr := net.JoinHostPort(req.Addr, fmt.Sprintf("%d", req.Port))
+	addr := net.JoinHostPort(req.Addr, strconv.Itoa(req.Port))
 	log.Printf("[SERVER] sid=%d CONNECT_START %s", sid, addr)
 
 	s.closeStreamConnection(sid)
@@ -455,7 +457,7 @@ func (s *Server) handleConnect(ctx context.Context, sid uint16, req ConnectReque
 }
 
 func (s *Server) dial(req ConnectRequest) (net.Conn, error) {
-	addr := net.JoinHostPort(req.Addr, fmt.Sprintf("%d", req.Port))
+	addr := net.JoinHostPort(req.Addr, strconv.Itoa(req.Port))
 	if s.socksProxyAddr == "" {
 		dialer := &net.Dialer{
 			Timeout:   10 * time.Second,
@@ -469,7 +471,7 @@ func (s *Server) dial(req ConnectRequest) (net.Conn, error) {
 		return conn, nil
 	}
 
-	proxyAddr := net.JoinHostPort(s.socksProxyAddr, fmt.Sprintf("%d", s.socksProxyPort))
+	proxyAddr := net.JoinHostPort(s.socksProxyAddr, strconv.Itoa(s.socksProxyPort))
 	dialer := &net.Dialer{
 		Timeout:   10 * time.Second,
 		KeepAlive: 30 * time.Second,

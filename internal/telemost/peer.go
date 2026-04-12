@@ -409,7 +409,7 @@ func (p *Peer) sendHello() error {
 	return nil
 }
 
-func (p *Peer) handleSignaling(ctx context.Context) { //nolint:revive,cyclop
+func (p *Peer) handleSignaling(ctx context.Context) { //nolint:cyclop
 	pubSent := false
 
 	for {
@@ -844,7 +844,7 @@ func (p *Peer) sendLeave(uid string) bool {
 	return true
 }
 
-func (p *Peer) Close() error { //nolint:revive,cyclop
+func (p *Peer) Close() error {
 	log.Println("Closing peer...")
 	alreadyClosing := p.closed.Swap(true)
 	p.sendQueueClosed.Store(true)
