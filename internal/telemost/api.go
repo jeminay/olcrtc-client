@@ -1,6 +1,7 @@
 package telemost
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,21 +14,23 @@ import (
 
 const apiBase = "https://cloud-api.yandex.ru/telemost_front/v2/telemost"
 
+var ErrAPI = fmt.Errorf("api error")
+
 type ConnectionInfo struct {
-	RoomID       string `json:"room_id"`
-	PeerID       string `json:"peer_id"`
-	Credentials  string `json:"credentials"`
+	RoomID       string `json:"room_id"`             //nolint:tagliatelle
+	PeerID       string `json:"peer_id"`             //nolint:tagliatelle
+	Credentials  string `json:"credentials"`         //nolint:tagliatelle
 	ClientConfig struct {
-		MediaServerURL string `json:"media_server_url"`
-	} `json:"client_configuration"`
+		MediaServerURL string `json:"media_server_url"` //nolint:tagliatelle
+	} `json:"client_configuration"` //nolint:tagliatelle
 }
 
-func GetConnectionInfo(roomURL, displayName string) (*ConnectionInfo, error) {
+func GetConnectionInfo(ctx context.Context, roomURL, displayName string) (*ConnectionInfo, error) {
 	u := fmt.Sprintf("%s/conferences/%s/connection", apiBase, url.QueryEscape(roomURL))
 
-	req, err := http.NewRequest("GET", u, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	q := req.URL.Query()
@@ -48,18 +51,18 @@ func GetConnectionInfo(roomURL, displayName string) (*ConnectionInfo, error) {
 	client := protect.NewHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to do request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, body)
+		return nil, fmt.Errorf("%w %d: %s", ErrAPI, resp.StatusCode, body)
 	}
 
 	var info ConnectionInfo
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	return &info, nil
