@@ -179,7 +179,7 @@ func (s *Server) setupMux() {
 		if len(s.peers) == 0 {
 			return ErrNoPeers
 		}
-		idx := s.peerIdx.Add(1) % uint32(len(s.peers))
+		idx := s.peerIdx.Add(1) % uint32(len(s.peers)) //nolint:gosec
 		return s.peers[idx].Send(encrypted)
 	})
 }
@@ -243,7 +243,7 @@ func (s *Server) handlePeerReconnect(peerID int, dc *webrtc.DataChannel) {
 			if len(s.peers) == 0 {
 				return ErrNoPeers
 			}
-			idx := s.peerIdx.Add(1) % uint32(len(s.peers))
+			idx := s.peerIdx.Add(1) % uint32(len(s.peers)) //nolint:gosec
 			return s.peers[idx].Send(encrypted)
 		})
 	}
@@ -274,7 +274,7 @@ func (s *Server) socks5Connect(conn net.Conn, targetAddr string, targetPort int)
 	req := make([]byte, 0, 7+addrLen)
 	req = append(req, 5, 1, 0, 3, byte(addrLen))
 	req = append(req, []byte(targetAddr)...)
-	req = append(req, byte(targetPort>>8), byte(targetPort))
+	req = append(req, byte(targetPort>>8), byte(targetPort)) //nolint:gosec
 
 	if _, err := conn.Write(req); err != nil {
 		return fmt.Errorf("failed to write socks5 connect req: %w", err)
@@ -518,7 +518,7 @@ func (s *Server) pumpToMux(sid uint16, conn net.Conn) {
 			return
 		}
 
-		totalSent += uint64(n)
+		totalSent += uint64(n) //nolint:gosec
 		if time.Since(lastLog) > 5*time.Second {
 			log.Printf("[SERVER] sid=%d TRANSFER_UP sent=%d MB", sid, totalSent/(1024*1024))
 			lastLog = time.Now()

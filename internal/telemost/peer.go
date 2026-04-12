@@ -844,6 +844,7 @@ func (p *Peer) sendLeave(uid string) bool {
 	return true
 }
 
+// Close closes the peer connection and cleans up resources.
 func (p *Peer) Close() error {
 	log.Println("Closing peer...")
 	alreadyClosing := p.closed.Swap(true)
