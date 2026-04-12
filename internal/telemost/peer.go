@@ -1041,8 +1041,6 @@ func (p *Peer) WatchConnection(ctx context.Context) {
 }
 
 func (p *Peer) processSendQueue(workerID int, sessionCloseCh <-chan struct{}) {
-	log.Printf("[WORKER-%d] Started", workerID)
-	defer log.Printf("[WORKER-%d] Stopped", workerID)
 
 	for {
 		select {
