@@ -27,11 +27,17 @@ or wait for the release or at least a beta
 ## fast start
 
 ```bash
-# server ( podman, pre configured, easy )
+# server ( podman, pre configured, easy, unix )
 ./script/srv.sh
 
-# client ( podman, pre configured, easy   
+# client ( podman, pre configured, easy, unix )  
 ./script/cnc.sh
+
+# server ( podman, pre configured, easy, win )
+./script/srv.bat
+
+# client ( podman, pre configured, easy, win )  
+./script/cnc.bat
 
 
 # Also there's a client UI version (currently in beta)
