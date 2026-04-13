@@ -115,6 +115,7 @@ func Mobile() error {
 	return sh.RunV("gomobile", "bind",
 		"-target=android",
 		"-androidapi", "21",
+		"-ldflags", "-s -w -checklinkname=0",
 		"-o", filepath.Join(buildDir, "olcrtc.aar"),
 		"./mobile",
 	)
