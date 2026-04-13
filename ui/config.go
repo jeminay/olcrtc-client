@@ -12,10 +12,12 @@ import (
 
 type Config struct {
 	Os            string
-	DNS           string `json:"dns"` // todo
+	DNS           string `json:"dns"`
 	EncryptionKey string `json:"encryption_key"`
 	SocksPort     string `json:"socks_port"`
 	ConferenceID  string `json:"conference_id"`
+	RoomPassword  string `json:"room_password"`
+	Provider      string `json:"provider"`
 }
 
 func isValidPort(portStr string) bool {
@@ -59,12 +61,13 @@ func (p *Program) getConfigPath() string {
 func (p *Program) loadConfig() *Config {
 	configPath := p.getConfigPath()
 	log("Loading config from: %s", configPath)
-	// default values
 	cfg := &Config{
 		DNS:           "1.1.1.1",
 		EncryptionKey: "",
 		SocksPort:     "1080",
 		ConferenceID:  "",
+		RoomPassword:  "",
+		Provider:      "telemost",
 	}
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -92,10 +95,11 @@ func (p *Program) loadConfig() *Config {
 	return cfg
 }
 
-func (p *Program) saveConfig(dns, encryptionKey, socksPort, conferenceID string) {
+func (p *Program) saveConfig(dns, encryptionKey, socksPort, conferenceID, roomPassword, provider string) {
 	log("Saving configuration...")
 
 	conferenceID = strings.ReplaceAll(conferenceID, " ", "")
+	roomPassword = strings.ReplaceAll(roomPassword, " ", "")
 
 	if !isValidPort(socksPort) {
 		log("ERROR: Invalid port: %s", socksPort)
@@ -103,17 +107,34 @@ func (p *Program) saveConfig(dns, encryptionKey, socksPort, conferenceID string)
 		return
 	}
 
-	if !isValidConferenceID(conferenceID) {
-		log("ERROR: Invalid conference ID: %s", conferenceID)
-		p.showError(fmt.Errorf("invalid conference ID: must contain only numbers"))
+	if provider == "telemost" && !isValidConferenceID(conferenceID) {
+		log("ERROR: Invalid conference ID for telemost: %s", conferenceID)
+		p.showError(fmt.Errorf("invalid conference ID: must contain only numbers for telemost"))
 		return
 	}
 
+	if provider == "jazz" && conferenceID == "" {
+		log("ERROR: Room ID required for jazz provider")
+		p.showError(fmt.Errorf("room ID required for jazz provider"))
+		return
+	}
+
+	if provider != "telemost" && provider != "jazz" {
+		log("ERROR: Invalid provider: %s", provider)
+		p.showError(fmt.Errorf("invalid provider: must be telemost or jazz"))
+		return
+	}
+
+	currentOs := p.Config.Os
+
 	p.Config = &Config{
+		Os:            currentOs,
 		DNS:           dns,
 		EncryptionKey: encryptionKey,
 		SocksPort:     socksPort,
 		ConferenceID:  conferenceID,
+		RoomPassword:  roomPassword,
+		Provider:      provider,
 	}
 
 	configPath := p.getConfigPath()

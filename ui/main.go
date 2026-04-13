@@ -48,7 +48,7 @@ func NewProgram() *Program {
 	cfg := p.loadConfig()
 	cfg.Os = uOs
 	p.Config = cfg
-	p.buildRunString(cfg.ConferenceID, cfg.EncryptionKey, cfg.SocksPort, cfg.DNS)
+	p.buildRunString(cfg.ConferenceID, cfg.RoomPassword, cfg.EncryptionKey, cfg.SocksPort, cfg.DNS, cfg.Provider)
 	return p
 }
 
