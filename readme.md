@@ -7,8 +7,7 @@
 
 </div>
 
-# ЯНДЕКС УДАЛИЛ DataChannel !
-# ПРОЕКТ ПЕРЕПИСЫВАЕТСЯ НА VideoChannel и SALUTEJAZZ, [ОЖИДАЙТЕ](https://github.com/openlibrecommunity/olcrtc/issues/1) !
+# яндекс удалил DataChannel ! проект переписывается VideoChannel и Jazz , [ожидайте](https://github.com/openlibrecommunity/olcrtc/issues/1) !
 
 ## About
 olcRTC - across the Sea
