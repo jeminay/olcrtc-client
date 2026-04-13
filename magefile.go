@@ -18,7 +18,7 @@ const (
 	module    = "github.com/openlibrecommunity/olcrtc"
 	buildDir  = "build"
 	ldflags   = "-s -w"
-	goVersion = "1.24"
+	goVersion = "1.25"
 )
 
 var (
