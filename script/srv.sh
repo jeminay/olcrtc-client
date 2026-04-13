@@ -8,8 +8,23 @@ CONTAINER_NAME="olcrtc-server"
 IMAGE_NAME="docker.io/library/golang:1.26-alpine"
 REPO_URL="https://github.com/openlibrecommunity/olcrtc.git"
 WORK_DIR="/tmp/olcrtc-deploy"
+BRANCH="main"
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --branch=*)
+            BRANCH="${1#*=}"
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
 
 echo "=== OlcRTC Server Deployment Script ==="
+echo ""
+echo "[*] Using branch: $BRANCH"
 echo ""
 
 if ! command -v podman &> /dev/null; then
@@ -112,7 +127,7 @@ rm -rf $WORK_DIR
 mkdir -p $WORK_DIR
 
 echo "[*] Cloning repository..."
-git clone --depth 1 $REPO_URL $WORK_DIR
+git clone --depth 1 --branch "$BRANCH" $REPO_URL $WORK_DIR
 
 echo "[*] Pulling Go image..."
 podman pull $IMAGE_NAME
@@ -156,14 +171,32 @@ podman run -d \
     $IMAGE_NAME \
     ./olcrtc -mode srv -provider "$PROVIDER" -id "$ROOM_ID" -key "$KEY" "${EXTRA_ARGS[@]}"
 
-sleep 2
+sleep 3
+
+ACTUAL_ROOM_ID="$ROOM_ID"
+
+if [ "$PROVIDER" = "jazz" ] && [ "$ROOM_ID" = "any" ]; then
+    echo "[*] Waiting for Jazz room creation..."
+    sleep 2
+    LOGS=$(podman logs $CONTAINER_NAME 2>&1)
+    ACTUAL_ROOM_ID=$(echo "$LOGS" | grep -oP 'Jazz room created: \K[^\s]+' | head -1)
+    
+    if [ -z "$ACTUAL_ROOM_ID" ]; then
+        echo "[!] WARNING: Could not extract Jazz room ID from logs"
+        echo "[*] Full logs:"
+        podman logs $CONTAINER_NAME
+        ACTUAL_ROOM_ID="(check logs above)"
+    else
+        echo "[+] Jazz room created: $ACTUAL_ROOM_ID"
+    fi
+fi
 
 echo ""
 echo "[+] Server started successfully!"
 echo ""
 echo "Container name: $CONTAINER_NAME"
 echo "Provider:       $PROVIDER"
-echo "Room ID:        $ROOM_ID"
+echo "Room ID:        $ACTUAL_ROOM_ID"
 echo "Encryption key: $KEY"
 
 if [ ${#EXTRA_ARGS[@]} -gt 0 ]; then
@@ -178,5 +211,5 @@ echo "Stop server:"
 echo "  podman stop $CONTAINER_NAME"
 echo ""
 echo "Client command:"
-echo "  ./olcrtc -mode cnc -provider \"$PROVIDER\" -id \"$ROOM_ID\" -key \"$KEY\" -socks-port 1080"
+echo "  ./olcrtc -mode cnc -provider \"$PROVIDER\" -id \"$ACTUAL_ROOM_ID\" -key \"$KEY\" -socks-port 1080"
 echo ""

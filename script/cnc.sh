@@ -10,8 +10,23 @@ IMAGE_NAME="docker.io/library/golang:1.26-alpine"
 REPO_URL="https://github.com/openlibrecommunity/olcrtc.git"
 WORK_DIR="/tmp/olcrtc-client"
 SOCKS_PORT="8808"
+BRANCH="main"
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --branch=*)
+            BRANCH="${1#*=}"
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
 
 echo "=== OlcRTC Client Deployment Script ==="
+echo ""
+echo "[*] Using branch: $BRANCH"
 echo ""
 
 if ! command -v podman &> /dev/null; then
@@ -67,24 +82,11 @@ echo "[*] Using provider: $PROVIDER"
 echo ""
 
 if [ "$PROVIDER" = "jazz" ]; then
-    echo "Jazz room options:"
-    echo "  1) Connect to existing room (enter roomId:password)"
-    echo "  2) Auto-generate room (server will create)"
-    read -p "Enter choice [1-2, default: 1]: " JAZZ_CHOICE
-    
-    case "$JAZZ_CHOICE" in
-        2)
-            ROOM_ID="any"
-            echo "[*] Will auto-generate Jazz room"
-            ;;
-        *)
-            read -p "Enter Room ID (format: roomId:password): " ROOM_ID
-            if [ -z "$ROOM_ID" ]; then
-                echo "[X] Room ID cannot be empty"
-                exit 1
-            fi
-            ;;
-    esac
+    read -p "Enter Room ID (format: roomId:password from server): " ROOM_ID
+    if [ -z "$ROOM_ID" ]; then
+        echo "[X] Room ID cannot be empty"
+        exit 1
+    fi
 else
     read -p "Enter Room ID: " ROOM_ID
     if [ -z "$ROOM_ID" ]; then
@@ -115,7 +117,7 @@ rm -rf $WORK_DIR
 mkdir -p $WORK_DIR
 
 echo "[*] Cloning repository..."
-git clone --depth 1 $REPO_URL $WORK_DIR
+git clone --depth 1 --branch "$BRANCH" $REPO_URL $WORK_DIR
 
 echo "[*] Pulling Go image..."
 podman pull $IMAGE_NAME
