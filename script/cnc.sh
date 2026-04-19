@@ -12,7 +12,7 @@ WORK_DIR="/tmp/olcrtc-client"
 
 SOCKS_IP="127.0.0.1"
 SOCKS_PORT="8808"
-BRANCH="main"
+BRANCH="master"
 
 while [[ $# -gt 0 ]]; do
     case $1 in

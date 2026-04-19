@@ -8,7 +8,7 @@ CONTAINER_NAME="olcrtc-server"
 IMAGE_NAME="docker.io/library/golang:1.26-alpine"
 REPO_URL="https://github.com/openlibrecommunity/olcrtc.git"
 WORK_DIR="/tmp/olcrtc-deploy"
-BRANCH="main"
+BRANCH="master"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
