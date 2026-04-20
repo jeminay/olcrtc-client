@@ -7,12 +7,12 @@ import (
 
 func TestVisualRoundTrip(t *testing.T) {
 	payload := []byte("hello over visual videochannel")
-	frame, err := renderVisualFrame(payload)
+	frame, err := renderVisualFrame(payload, 320, 240)
 	if err != nil {
 		t.Fatalf("renderVisualFrame failed: %v", err)
 	}
 
-	got, err := extractVisualPayload(frame)
+	got, err := extractVisualPayload(frame, 320, 240)
 	if err != nil {
 		t.Fatalf("extractVisualPayload failed: %v", err)
 	}
@@ -22,12 +22,12 @@ func TestVisualRoundTrip(t *testing.T) {
 }
 
 func TestIdleFrameIgnored(t *testing.T) {
-	frame, err := renderVisualFrame(nil)
+	frame, err := renderVisualFrame(nil, 320, 240)
 	if err != nil {
 		t.Fatalf("renderVisualFrame failed: %v", err)
 	}
 
-	got, err := extractVisualPayload(frame)
+	got, err := extractVisualPayload(frame, 320, 240)
 	if err == nil && len(got) != 0 {
 		t.Fatalf("expected idle frame to be ignored, got=%q", got)
 	}
