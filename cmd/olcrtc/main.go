@@ -55,6 +55,10 @@ func run() error {
 		return err
 	}
 
+	if cfg.dataDir == "" {
+		return fmt.Errorf("data directory required (use -data data)")
+	}
+
 	dataDir, err := resolveDataDir(cfg.dataDir)
 	if err != nil {
 		return err
@@ -89,24 +93,24 @@ func parseFlags() config {
 	cfg := config{}
 
 	flag.StringVar(&cfg.mode, "mode", "", "Mode: srv or cnc")
-	flag.StringVar(&cfg.link, "link", "direct", "Link: direct")
-	flag.StringVar(&cfg.transport, "transport", "datachannel", "Transport: datachannel, videochannel, seichannel")
+	flag.StringVar(&cfg.link, "link", "", "Link: direct")
+	flag.StringVar(&cfg.transport, "transport", "", "Transport: datachannel, videochannel, seichannel")
 	flag.StringVar(&cfg.carrier, "carrier", "", "Carrier: telemost, jazz, wb_stream")
 	flag.StringVar(&cfg.roomID, "id", "", "Room ID")
 	flag.StringVar(&cfg.provider, "provider", "", "Deprecated alias for -carrier")
-	flag.IntVar(&cfg.socksPort, "socks-port", 1080, "SOCKS5 port (client only)")
-	flag.StringVar(&cfg.socksHost, "socks-host", "127.0.0.1", "SOCKS5 listen host (client only)")
+	flag.IntVar(&cfg.socksPort, "socks-port", 0, "SOCKS5 port (client only)")
+	flag.StringVar(&cfg.socksHost, "socks-host", "", "SOCKS5 listen host (client only)")
 	flag.StringVar(&cfg.keyHex, "key", "", "Shared encryption key (hex)")
 	flag.BoolVar(&cfg.debug, "debug", false, "Enable verbose logging")
-	flag.StringVar(&cfg.dataDir, "data", "data", "Path to data directory")
-	flag.StringVar(&cfg.dnsServer, "dns", "1.1.1.1:53", "DNS server (default: Cloudflare 1.1.1.1)")
+	flag.StringVar(&cfg.dataDir, "data", "", "Path to data directory")
+	flag.StringVar(&cfg.dnsServer, "dns", "", "DNS server (e.g. 1.1.1.1:53)")
 	flag.StringVar(&cfg.socksProxyAddr, "socks-proxy", "", "SOCKS5 proxy address (server only)")
-	flag.IntVar(&cfg.socksProxyPort, "socks-proxy-port", 1080, "SOCKS5 proxy port (server only)")
-	flag.IntVar(&cfg.videoWidth, "video-w", 640, "Video logical width (videochannel only)")
-	flag.IntVar(&cfg.videoHeight, "video-h", 360, "Video logical height (videochannel only)")
-	flag.IntVar(&cfg.videoFPS, "video-fps", 25, "Video frames per second (videochannel only)")
-	flag.StringVar(&cfg.videoBitrate, "video-bitrate", "2048k", "Video bitrate (videochannel only)")
-	flag.StringVar(&cfg.videoHW, "video-hw", "none", "Hardware acceleration (none, nvenc)")
+	flag.IntVar(&cfg.socksProxyPort, "socks-proxy-port", 0, "SOCKS5 proxy port (server only)")
+	flag.IntVar(&cfg.videoWidth, "video-w", 0, "Video logical width (videochannel only)")
+	flag.IntVar(&cfg.videoHeight, "video-h", 0, "Video logical height (videochannel only)")
+	flag.IntVar(&cfg.videoFPS, "video-fps", 0, "Video frames per second (videochannel only)")
+	flag.StringVar(&cfg.videoBitrate, "video-bitrate", "", "Video bitrate (videochannel only)")
+	flag.StringVar(&cfg.videoHW, "video-hw", "", "Hardware acceleration (none, nvenc)")
 	flag.Parse()
 
 	return cfg

@@ -31,6 +31,26 @@ var (
 	ErrUnsupportedLink = errors.New("unsupported link")
 	// ErrUnsupportedTransport indicates that transport is not registered.
 	ErrUnsupportedTransport = errors.New("unsupported transport")
+
+	// ErrLinkRequired indicates that link is not provided.
+	ErrLinkRequired = errors.New("link required (use -link direct)")
+	// ErrTransportRequired indicates that transport is not provided.
+	ErrTransportRequired = errors.New("transport required (use -transport datachannel or -transport videochannel)")
+	// ErrKeyRequired indicates that encryption key is not provided.
+	ErrKeyRequired = errors.New("key required (use -key <hex>)")
+	// ErrDNSServerRequired indicates that dns server is not provided.
+	ErrDNSServerRequired = errors.New("dns server required (use -dns 1.1.1.1:53)")
+
+	// Videochannel errors
+	ErrVideoWidthRequired   = errors.New("video width required for videochannel (use -video-w)")
+	ErrVideoHeightRequired  = errors.New("video height required for videochannel (use -video-h)")
+	ErrVideoFPSRequired     = errors.New("video fps required for videochannel (use -video-fps)")
+	ErrVideoBitrateRequired = errors.New("video bitrate required for videochannel (use -video-bitrate)")
+	ErrVideoHWRequired      = errors.New("video hardware acceleration required for videochannel (use -video-hw none/nvenc)")
+
+	// CNC errors
+	ErrSOCKSHostRequired = errors.New("socks host required for cnc mode (use -socks-host)")
+	ErrSOCKSPortRequired = errors.New("socks port required for cnc mode (use -socks-port)")
 )
 
 // Config holds runtime session settings.
@@ -62,7 +82,7 @@ func RegisterDefaults() {
 	transport.Register("seichannel", seichannel.New)
 }
 
-// Validate verifies that the runtime config refers to registered components.
+// Validate verifies that the runtime config refers to registered components and all required fields are present.
 func Validate(cfg Config) error {
 	availableCarriers := carrier.Available()
 	validCarrier := false
@@ -91,22 +111,74 @@ func Validate(cfg Config) error {
 		}
 	}
 
-	switch {
-	case cfg.Carrier == "":
-		return ErrCarrierRequired
-	case !validCarrier:
-		return fmt.Errorf("%w: %s (available: %v)", ErrUnsupportedCarrier, cfg.Carrier, availableCarriers)
-	case !validLink:
-		return fmt.Errorf("%w: %s (available: %v)", ErrUnsupportedLink, cfg.Link, availableLinks)
-	case !validTransport:
-		return fmt.Errorf("%w: %s (available: %v)", ErrUnsupportedTransport, cfg.Transport, availableTransports)
-	case cfg.RoomID == "" && cfg.Carrier != "jazz":
-		return ErrRoomIDRequired
-	case cfg.Mode != "srv" && cfg.Mode != "cnc":
+	if cfg.Mode == "" {
 		return ErrModeRequired
-	default:
-		return nil
 	}
+	if cfg.Mode != "srv" && cfg.Mode != "cnc" {
+		return ErrModeRequired
+	}
+
+	if cfg.Carrier == "" {
+		return ErrCarrierRequired
+	}
+	if !validCarrier {
+		return fmt.Errorf("%w: %s (available: %v)", ErrUnsupportedCarrier, cfg.Carrier, availableCarriers)
+	}
+
+	if cfg.Link == "" {
+		return ErrLinkRequired
+	}
+	if !validLink {
+		return fmt.Errorf("%w: %s (available: %v)", ErrUnsupportedLink, cfg.Link, availableLinks)
+	}
+
+	if cfg.Transport == "" {
+		return ErrTransportRequired
+	}
+	if !validTransport {
+		return fmt.Errorf("%w: %s (available: %v)", ErrUnsupportedTransport, cfg.Transport, availableTransports)
+	}
+
+	if cfg.RoomID == "" && cfg.Carrier != "jazz" {
+		return ErrRoomIDRequired
+	}
+
+	if cfg.KeyHex == "" {
+		return ErrKeyRequired
+	}
+
+	if cfg.DNSServer == "" {
+		return ErrDNSServerRequired
+	}
+
+	if cfg.Transport == "videochannel" {
+		if cfg.VideoWidth == 0 {
+			return ErrVideoWidthRequired
+		}
+		if cfg.VideoHeight == 0 {
+			return ErrVideoHeightRequired
+		}
+		if cfg.VideoFPS == 0 {
+			return ErrVideoFPSRequired
+		}
+		if cfg.VideoBitrate == "" {
+			return ErrVideoBitrateRequired
+		}
+		if cfg.VideoHW == "" {
+			return ErrVideoHWRequired
+		}
+	}
+
+	if cfg.Mode == "cnc" {
+		if cfg.SOCKSHost == "" {
+			return ErrSOCKSHostRequired
+		}
+		if cfg.SOCKSPort == 0 {
+			return ErrSOCKSPortRequired
+		}
+	}
+
+	return nil
 }
 
 // Run starts the configured mode.

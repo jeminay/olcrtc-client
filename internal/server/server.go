@@ -3,13 +3,11 @@ package server
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"strconv"
 	"sync"
@@ -100,16 +98,12 @@ func Run(
 		socksProxyPort: socksProxyPort,
 	}
 
-	if s.dnsServer == "" {
-		s.dnsServer = "1.1.1.1:53"
-	}
-
 	s.setupResolver()
 	s.setupMux()
 
 	const linkCount = 1
 	for i := range linkCount {
-		if err := s.addLink(runCtx, linkName, transportName, carrierName, roomURL, i, cancel, videoWidth, videoHeight, videoFPS, videoBitrate); err != nil {
+		if err := s.addLink(runCtx, linkName, transportName, carrierName, roomURL, i, cancel, videoWidth, videoHeight, videoFPS, videoBitrate, videoHW); err != nil {
 			return fmt.Errorf("addLink failed: %w", err)
 		}
 	}
@@ -122,23 +116,16 @@ func Run(
 }
 
 func setupCipher(keyHex string) (*crypto.Cipher, error) {
-	var key []byte
-	var err error
-
 	if keyHex == "" {
-		key = make([]byte, 32)
-		if _, err := rand.Read(key); err != nil {
-			return nil, fmt.Errorf("failed to generate key: %w", err)
-		}
-		log.Printf("Generated key: %x", key)
-	} else {
-		key, err = hex.DecodeString(keyHex)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode key: %w", err)
-		}
-		if len(key) != 32 {
-			return nil, fmt.Errorf("%w, got %d", ErrKeySize, len(key))
-		}
+		return nil, errors.New("key required (use -key <hex>)")
+	}
+
+	key, err := hex.DecodeString(keyHex)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode key: %w", err)
+	}
+	if len(key) != 32 {
+		return nil, fmt.Errorf("%w, got %d", ErrKeySize, len(key))
 	}
 
 	keyStr := string(key)
@@ -200,7 +187,7 @@ func (s *Server) addLink(
 	linkID int,
 	cancel context.CancelFunc,
 	videoWidth, videoHeight, videoFPS int,
-	videoBitrate string,
+	videoBitrate, videoHW string,
 ) error {
 	ln, err := link.New(ctx, linkName, link.Config{
 		Transport:    transportName,
@@ -215,6 +202,7 @@ func (s *Server) addLink(
 		VideoHeight:  videoHeight,
 		VideoFPS:     videoFPS,
 		VideoBitrate: videoBitrate,
+		VideoHW:      videoHW,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create link: %w", err)
