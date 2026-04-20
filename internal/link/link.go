@@ -53,3 +53,12 @@ func New(ctx context.Context, name string, cfg Config) (Link, error) {
 	}
 	return factory(ctx, cfg)
 }
+
+// Available returns a list of registered link names.
+func Available() []string {
+	names := make([]string, 0, len(registry))
+	for name := range registry {
+		names = append(names, name)
+	}
+	return names
+}

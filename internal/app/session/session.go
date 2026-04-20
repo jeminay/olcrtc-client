@@ -27,6 +27,8 @@ var (
 	ErrCarrierRequired = errors.New("carrier required (use -carrier telemost or -carrier jazz)")
 	// ErrUnsupportedCarrier indicates that carrier is not registered.
 	ErrUnsupportedCarrier = errors.New("unsupported carrier")
+	// ErrUnsupportedLink indicates that link is not registered.
+	ErrUnsupportedLink = errors.New("unsupported link")
 	// ErrUnsupportedTransport indicates that transport is not registered.
 	ErrUnsupportedTransport = errors.New("unsupported transport")
 )
@@ -34,6 +36,7 @@ var (
 // Config holds runtime session settings.
 type Config struct {
 	Mode           string
+	Link           string
 	Transport      string
 	Carrier        string
 	RoomID         string
@@ -75,11 +78,22 @@ func Validate(cfg Config) error {
 		}
 	}
 
+	availableLinks := link.Available()
+	validLink := false
+	for _, l := range availableLinks {
+		if cfg.Link == l {
+			validLink = true
+			break
+		}
+	}
+
 	switch {
 	case cfg.Carrier == "":
 		return ErrCarrierRequired
 	case !validCarrier:
 		return fmt.Errorf("%w: %s (available: %v)", ErrUnsupportedCarrier, cfg.Carrier, availableCarriers)
+	case !validLink:
+		return fmt.Errorf("%w: %s (available: %v)", ErrUnsupportedLink, cfg.Link, availableLinks)
 	case !validTransport:
 		return fmt.Errorf("%w: %s (available: %v)", ErrUnsupportedTransport, cfg.Transport, availableTransports)
 	case cfg.RoomID == "" && cfg.Carrier != "jazz":
@@ -99,6 +113,7 @@ func Run(ctx context.Context, cfg Config) error {
 	case "srv":
 		return server.Run(
 			ctx,
+			cfg.Link,
 			cfg.Transport,
 			cfg.Carrier,
 			roomURL,
@@ -110,6 +125,7 @@ func Run(ctx context.Context, cfg Config) error {
 	case "cnc":
 		return client.Run(
 			ctx,
+			cfg.Link,
 			cfg.Transport,
 			cfg.Carrier,
 			roomURL,

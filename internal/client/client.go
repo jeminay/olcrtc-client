@@ -58,6 +58,7 @@ type Client struct {
 // Run starts the client with the specified parameters.
 func Run(
 	ctx context.Context,
+	linkName,
 	transportName,
 	providerName,
 	roomURL,
@@ -67,12 +68,13 @@ func Run(
 	socksUser string,
 	socksPass string,
 ) error {
-	return RunWithReady(ctx, transportName, providerName, roomURL, keyHex, localAddr, dnsServer, socksUser, socksPass, nil)
+	return RunWithReady(ctx, linkName, transportName, providerName, roomURL, keyHex, localAddr, dnsServer, socksUser, socksPass, nil)
 }
 
 // RunWithReady is like Run but accepts a callback that is called when the client is ready.
 func RunWithReady(
 	ctx context.Context,
+	linkName,
 	transportName,
 	providerName,
 	roomURL,
@@ -109,7 +111,7 @@ func RunWithReady(
 
 	const peerCount = 1
 	for i := range peerCount {
-		if err := c.addTransport(runCtx, transportName, providerName, roomURL, i, cancel, dnsServer, "", 0); err != nil {
+		if err := c.addTransport(runCtx, linkName, transportName, providerName, roomURL, i, cancel, dnsServer, "", 0); err != nil {
 			return fmt.Errorf("addTransport failed: %w", err)
 		}
 	}
@@ -187,6 +189,7 @@ func (c *Client) setupMux() {
 
 func (c *Client) addTransport(
 	ctx context.Context,
+	linkName,
 	transportName,
 	providerName,
 	roomURL string,
@@ -196,7 +199,7 @@ func (c *Client) addTransport(
 	socksProxyAddr string,
 	socksProxyPort int,
 ) error {
-	ln, err := link.New(ctx, "direct", link.Config{
+	ln, err := link.New(ctx, linkName, link.Config{
 		Transport: transportName,
 		Carrier:   providerName,
 		RoomURL:   roomURL,

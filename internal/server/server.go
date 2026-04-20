@@ -68,6 +68,7 @@ type ConnectRequest struct {
 // Run starts the server with the specified parameters.
 func Run(
 	ctx context.Context,
+	linkName,
 	transportName,
 	providerName,
 	roomURL,
@@ -103,7 +104,7 @@ func Run(
 
 	const peerCount = 1
 	for i := range peerCount {
-		if err := s.addTransport(runCtx, transportName, providerName, roomURL, i, cancel); err != nil {
+		if err := s.addTransport(runCtx, linkName, transportName, providerName, roomURL, i, cancel); err != nil {
 			return fmt.Errorf("addTransport failed: %w", err)
 		}
 	}
@@ -187,13 +188,14 @@ func (s *Server) setupMux() {
 
 func (s *Server) addTransport(
 	ctx context.Context,
+	linkName,
 	transportName,
 	providerName,
 	roomURL string,
 	peerID int,
 	cancel context.CancelFunc,
 ) error {
-	ln, err := link.New(ctx, "direct", link.Config{
+	ln, err := link.New(ctx, linkName, link.Config{
 		Transport: transportName,
 		Carrier:   providerName,
 		RoomURL:   roomURL,

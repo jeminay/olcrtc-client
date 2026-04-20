@@ -18,6 +18,7 @@ import (
 
 type config struct {
 	mode           string
+	link           string
 	transport      string
 	carrier        string
 	roomID         string
@@ -83,6 +84,7 @@ func parseFlags() config {
 	cfg := config{}
 
 	flag.StringVar(&cfg.mode, "mode", "", "Mode: srv or cnc")
+	flag.StringVar(&cfg.link, "link", "direct", "Link: direct")
 	flag.StringVar(&cfg.transport, "transport", "datachannel", "Transport: datachannel")
 	flag.StringVar(&cfg.carrier, "carrier", "", "Carrier: telemost, jazz, wb_stream")
 	flag.StringVar(&cfg.roomID, "id", "", "Room ID")
@@ -132,6 +134,7 @@ func loadNames(dataDir string) error {
 func toSessionConfig(cfg config) session.Config {
 	return session.Config{
 		Mode:           cfg.mode,
+		Link:           cfg.link,
 		Transport:      cfg.transport,
 		Carrier:        firstNonEmpty(cfg.carrier, cfg.provider),
 		RoomID:         cfg.roomID,
