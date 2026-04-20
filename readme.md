@@ -7,7 +7,7 @@
 
 </div>
 
-# Yandex Deleted DataChannel, project rewite to VideoChannel and Jazz , [wait and see](https://github.com/openlibrecommunity/olcrtc/issues/1) 
+# Yandex Deleted DataChannel, project rewite to VideoChannel 
 
 ## About
 olcRTC - across the Sea
