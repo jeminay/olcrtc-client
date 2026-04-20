@@ -15,7 +15,7 @@ type streamTransport struct {
 
 // New creates a datachannel transport backed by a carrier-specific provider.
 func New(ctx context.Context, cfg transport.Config) (transport.Transport, error) {
-	c, err := carrier.New(ctx, cfg.Carrier, carrier.Config{
+	session, err := carrier.New(ctx, cfg.Carrier, carrier.Config{
 		RoomURL:   cfg.RoomURL,
 		Name:      cfg.Name,
 		OnData:    cfg.OnData,
@@ -27,7 +27,17 @@ func New(ctx context.Context, cfg transport.Config) (transport.Transport, error)
 		return nil, fmt.Errorf("create provider transport: %w", err)
 	}
 
-	return &streamTransport{stream: carrier.OpenByteStream(c)}, nil
+	streamCapable, ok := session.(carrier.ByteStreamCapable)
+	if !ok {
+		return nil, carrier.ErrByteStreamUnsupported
+	}
+
+	stream, err := streamCapable.OpenByteStream()
+	if err != nil {
+		return nil, fmt.Errorf("open byte stream: %w", err)
+	}
+
+	return &streamTransport{stream: stream}, nil
 }
 
 // Connect starts the transport connection.

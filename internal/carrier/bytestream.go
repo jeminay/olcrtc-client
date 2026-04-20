@@ -3,6 +3,7 @@ package carrier
 import (
 	"context"
 
+	"github.com/openlibrecommunity/olcrtc/internal/provider"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -18,30 +19,39 @@ type ByteStream interface {
 	CanSend() bool
 }
 
-type providerByteStream struct {
-	carrier Carrier
+type legacySession struct {
+	provider provider.Provider
 }
 
-// OpenByteStream adapts a carrier to a generic byte-stream capability.
-func OpenByteStream(c Carrier) ByteStream {
-	return &providerByteStream{carrier: c}
+// Capabilities reports the transport primitives supported by the legacy carrier.
+func (s *legacySession) Capabilities() Capabilities {
+	return Capabilities{ByteStream: true}
 }
 
-func (p *providerByteStream) Connect(ctx context.Context) error { return p.carrier.Connect(ctx) }
-func (p *providerByteStream) Send(data []byte) error            { return p.carrier.Send(data) }
-func (p *providerByteStream) Close() error                      { return p.carrier.Close() }
+// OpenByteStream adapts the legacy provider to a generic byte stream capability.
+func (s *legacySession) OpenByteStream() (ByteStream, error) {
+	return &legacyByteStream{provider: s.provider}, nil
+}
 
-func (p *providerByteStream) SetReconnectCallback(cb func()) {
-	p.carrier.SetReconnectCallback(func(_ *webrtc.DataChannel) {
+type legacyByteStream struct {
+	provider provider.Provider
+}
+
+func (p *legacyByteStream) Connect(ctx context.Context) error { return p.provider.Connect(ctx) }
+func (p *legacyByteStream) Send(data []byte) error            { return p.provider.Send(data) }
+func (p *legacyByteStream) Close() error                      { return p.provider.Close() }
+
+func (p *legacyByteStream) SetReconnectCallback(cb func()) {
+	p.provider.SetReconnectCallback(func(_ *webrtc.DataChannel) {
 		if cb != nil {
 			cb()
 		}
 	})
 }
 
-func (p *providerByteStream) SetShouldReconnect(fn func() bool) { p.carrier.SetShouldReconnect(fn) }
-func (p *providerByteStream) SetEndedCallback(cb func(string))  { p.carrier.SetEndedCallback(cb) }
-func (p *providerByteStream) WatchConnection(ctx context.Context) {
-	p.carrier.WatchConnection(ctx)
+func (p *legacyByteStream) SetShouldReconnect(fn func() bool) { p.provider.SetShouldReconnect(fn) }
+func (p *legacyByteStream) SetEndedCallback(cb func(string))  { p.provider.SetEndedCallback(cb) }
+func (p *legacyByteStream) WatchConnection(ctx context.Context) {
+	p.provider.WatchConnection(ctx)
 }
-func (p *providerByteStream) CanSend() bool { return p.carrier.CanSend() }
+func (p *legacyByteStream) CanSend() bool { return p.provider.CanSend() }

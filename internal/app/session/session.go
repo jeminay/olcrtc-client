@@ -50,9 +50,9 @@ type Config struct {
 
 // RegisterDefaults registers built-in providers and transports.
 func RegisterDefaults() {
-	carrier.Register("jazz", jazz.New)
-	carrier.Register("telemost", telemost.New)
-	carrier.Register("wb_stream", wbstream.New)
+	carrier.RegisterLegacy("jazz", jazz.New)
+	carrier.RegisterLegacy("telemost", telemost.New)
+	carrier.RegisterLegacy("wb_stream", wbstream.New)
 
 	link.Register("direct", direct.New)
 	transport.Register("datachannel", datachannel.New)
