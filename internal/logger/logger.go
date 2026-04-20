@@ -1,7 +1,6 @@
 package logger
 
 import (
-	"fmt"
 	"log"
 	"sync/atomic"
 )
@@ -20,44 +19,44 @@ func IsVerbose() bool {
 
 // Info logs an informational message.
 func Info(v ...any) {
-	log.Print("[INFO] ", fmt.Sprint(v...))
+	log.Print(v...)
 }
 
 // Infof logs a formatted informational message.
 func Infof(format string, v ...any) {
-	log.Printf("[INFO] "+format, v...)
+	log.Printf(format, v...)
 }
 
 // Warn logs a warning message.
 func Warn(v ...any) {
-	log.Print("[WARN] ", fmt.Sprint(v...))
+	log.Print(v...)
 }
 
 // Warnf logs a formatted warning message.
 func Warnf(format string, v ...any) {
-	log.Printf("[WARN] "+format, v...)
+	log.Printf(format, v...)
 }
 
 // Error logs an error message.
 func Error(v ...any) {
-	log.Print("[ERROR] ", fmt.Sprint(v...))
+	log.Print(v...)
 }
 
 // Errorf logs a formatted error message.
 func Errorf(format string, v ...any) {
-	log.Printf("[ERROR] "+format, v...)
+	log.Printf(format, v...)
 }
 
 // Verbosef logs a formatted message if verbose logging is enabled.
 func Verbosef(format string, v ...any) {
 	if verboseEnabled.Load() {
-		log.Printf("[VERBOSE] "+format, v...)
+		log.Printf(format, v...)
 	}
 }
 
 // Debugf logs a formatted message if verbose logging is enabled.
 func Debugf(format string, v ...any) {
 	if verboseEnabled.Load() {
-		log.Printf("[DEBUG] "+format, v...)
+		log.Printf(format, v...)
 	}
 }

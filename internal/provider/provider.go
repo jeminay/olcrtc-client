@@ -3,8 +3,17 @@ package provider
 
 import (
 	"context"
+	"errors"
 
 	"github.com/pion/webrtc/v4"
+)
+
+var (
+	ErrProviderNotFound    = errors.New("provider not found")
+	ErrDataChannelTimeout  = errors.New("datachannel timeout")
+	ErrDataChannelNotReady = errors.New("datachannel not ready")
+	ErrSendQueueClosed     = errors.New("send queue closed")
+	ErrSendQueueTimeout    = errors.New("send queue timeout")
 )
 
 // Provider defines the standard interface for WebRTC connection handlers.
@@ -19,6 +28,9 @@ type Provider interface {
 	CanSend() bool
 	GetSendQueue() chan []byte
 	GetBufferedAmount() uint64
+
+	// AddVideoTrack adds a video track to the connection.
+	AddVideoTrack(track *webrtc.TrackLocalStaticRTP) (*webrtc.RTPSender, error)
 }
 
 // Config holds common configuration for all providers.
@@ -34,7 +46,7 @@ type Config struct {
 // Factory is a function that creates a new Provider instance.
 type Factory func(ctx context.Context, cfg Config) (Provider, error)
 
-//nolint:gochecknoglobals
+// registry holds all registered provider factories.
 var registry = make(map[string]Factory)
 
 // Register adds a new provider factory to the registry.
