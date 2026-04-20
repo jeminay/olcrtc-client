@@ -65,7 +65,6 @@ mage clean
 
 # client ( podman, pre configured, easy, unix )  
 ./script/cnc.sh
-
 ```
 
 <div align="center">
