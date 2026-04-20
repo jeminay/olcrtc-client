@@ -134,9 +134,25 @@ func RunWithReady(
 
 	select {
 	case <-runCtx.Done():
+		c.shutdown()
 		return nil
 	case err := <-errCh:
 		return err
+	}
+}
+
+func (c *Client) shutdown() {
+	c.connMu.Lock()
+	for _, conn := range c.connections {
+		if conn != nil {
+			_ = conn.Close()
+		}
+	}
+	c.connMu.Unlock()
+
+	for i, ln := range c.links {
+		logger.Infof("closing link %d", i)
+		_ = ln.Close()
 	}
 }
 

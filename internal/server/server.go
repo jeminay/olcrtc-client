@@ -110,6 +110,7 @@ func Run(
 
 	err = s.runLoop(runCtx)
 
+	s.shutdown()
 	s.wg.Wait()
 
 	return err
@@ -334,7 +335,6 @@ func (s *Server) runLoop(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			s.shutdown()
 			return nil
 		case <-ticker.C:
 			s.processMuxStreams(ctx)
@@ -350,6 +350,14 @@ func (s *Server) shutdown() {
 		}
 	}
 	s.connMu.Unlock()
+
+	s.pumpMu.Lock()
+	for _, conn := range s.streamPumps {
+		if conn != nil {
+			_ = conn.Close()
+		}
+	}
+	s.pumpMu.Unlock()
 
 	for i, tr := range s.links {
 		logger.Infof("closing link %d", i)
