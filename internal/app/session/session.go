@@ -7,19 +7,17 @@ import (
 	"fmt"
 
 	"github.com/openlibrecommunity/olcrtc/internal/carrier"
+	"github.com/openlibrecommunity/olcrtc/internal/carrier/builtin"
 	"github.com/openlibrecommunity/olcrtc/internal/client"
 	"github.com/openlibrecommunity/olcrtc/internal/link"
 	"github.com/openlibrecommunity/olcrtc/internal/link/direct"
-	"github.com/openlibrecommunity/olcrtc/internal/provider/jazz"
-	"github.com/openlibrecommunity/olcrtc/internal/provider/telemost"
-	"github.com/openlibrecommunity/olcrtc/internal/provider/wbstream"
 	"github.com/openlibrecommunity/olcrtc/internal/server"
 	"github.com/openlibrecommunity/olcrtc/internal/transport"
 	"github.com/openlibrecommunity/olcrtc/internal/transport/datachannel"
 )
 
 var (
-	// ErrRoomIDRequired indicates that a room id is required for the selected provider.
+	// ErrRoomIDRequired indicates that a room id is required for the selected carrier.
 	ErrRoomIDRequired = errors.New("room ID required")
 	// ErrModeRequired indicates that mode is not one of the supported values.
 	ErrModeRequired = errors.New("specify -mode srv or -mode cnc")
@@ -50,10 +48,7 @@ type Config struct {
 
 // RegisterDefaults registers built-in providers and transports.
 func RegisterDefaults() {
-	carrier.RegisterLegacy("jazz", jazz.New)
-	carrier.RegisterLegacy("telemost", telemost.New)
-	carrier.RegisterLegacy("wb_stream", wbstream.New)
-
+	builtin.Register()
 	link.Register("direct", direct.New)
 	transport.Register("datachannel", datachannel.New)
 }
