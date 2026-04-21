@@ -60,7 +60,7 @@ echo ""
 echo "Select provider:"
 echo "  1) telemost"
 echo "  2) jazz"
-echo "  3) wb_stream"
+echo "  3) wbstream"
 read -p "Enter choice [1-3, default: 1]: " PROVIDER_CHOICE
 
 case "$PROVIDER_CHOICE" in
@@ -68,7 +68,7 @@ case "$PROVIDER_CHOICE" in
         PROVIDER="jazz"
         ;;
     3)
-        PROVIDER="wb_stream"
+        PROVIDER="wbstream"
         ;;
     *)
         PROVIDER="telemost"
@@ -97,7 +97,7 @@ if [ "$PROVIDER" = "jazz" ]; then
             echo "[*] Will auto-generate Jazz room"
             ;;
     esac
-elif [ "$PROVIDER" = "wb_stream" ]; then
+elif [ "$PROVIDER" = "wbstream" ]; then
     echo "WB Stream room options:"
     echo "  1) Auto-generate new room (recommended)"
     echo "  2) Use specific room ID"
@@ -212,7 +212,7 @@ if [ "$PROVIDER" = "jazz" ] && [ "$ROOM_ID" = "any" ]; then
     else
         echo "[+] Jazz room created: $ACTUAL_ROOM_ID"
     fi
-elif [ "$PROVIDER" = "wb_stream" ] && [ "$ROOM_ID" = "any" ]; then
+elif [ "$PROVIDER" = "wbstream" ] && [ "$ROOM_ID" = "any" ]; then
     echo "[*] Waiting for WB Stream room creation..."
     sleep 2
     LOGS=$(podman logs $CONTAINER_NAME 2>&1)

@@ -40,7 +40,7 @@ socks_proxy="${OLCRTC_SOCKS_PROXY:-}"
 socks_proxy_port="${OLCRTC_SOCKS_PROXY_PORT:-1080}"
 
 [ "$mode" = "srv" ] || die "server image defaults to OLCRTC_MODE=srv; got '$mode'"
-[ -n "$provider" ] || die "set OLCRTC_PROVIDER (e.g. telemost, jazz, wb_stream)"
+[ -n "$provider" ] || die "set OLCRTC_PROVIDER (e.g. telemost, jazz, wbstream)"
 [ -n "$room_id" ] || die "set OLCRTC_ROOM_ID to the room identifier"
 
 if [ -z "$key" ]; then
