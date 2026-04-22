@@ -165,7 +165,7 @@ func (p *streamTransport) WatchConnection(ctx context.Context) {
 }
 
 func (p *streamTransport) CanSend() bool {
-	return !p.closed.Load() && p.stream.CanSend()
+	return !p.closed.Load() && p.stream.CanSend() && len(p.outbound) < cap(p.outbound)/2
 }
 
 func (p *streamTransport) Features() transport.Features {
