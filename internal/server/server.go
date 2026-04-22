@@ -80,6 +80,7 @@ func Run(
 	videoBitrate string,
 	videoHW string,
 	videoQRSize int,
+	videoCodec string,
 	vp8FPS int,
 	vp8BatchSize int,
 ) error {
@@ -106,7 +107,7 @@ func Run(
 
 	const linkCount = 1
 	for i := range linkCount {
-		if err := s.addLink(runCtx, linkName, transportName, carrierName, roomURL, i, cancel, videoWidth, videoHeight, videoFPS, videoBitrate, videoHW, videoQRSize, vp8FPS, vp8BatchSize); err != nil {
+		if err := s.addLink(runCtx, linkName, transportName, carrierName, roomURL, i, cancel, videoWidth, videoHeight, videoFPS, videoBitrate, videoHW, videoQRSize, videoCodec, vp8FPS, vp8BatchSize); err != nil {
 			return fmt.Errorf("addLink failed: %w", err)
 		}
 	}
@@ -193,6 +194,7 @@ func (s *Server) addLink(
 	videoWidth, videoHeight, videoFPS int,
 	videoBitrate, videoHW string,
 	videoQRSize int,
+	videoCodec string,
 	vp8FPS int,
 	vp8BatchSize int,
 ) error {
@@ -211,6 +213,7 @@ func (s *Server) addLink(
 		VideoBitrate: videoBitrate,
 		VideoHW:      videoHW,
 		VideoQRSize:  videoQRSize,
+		VideoCodec:   videoCodec,
 		VP8FPS:       vp8FPS,
 		VP8BatchSize: vp8BatchSize,
 	})

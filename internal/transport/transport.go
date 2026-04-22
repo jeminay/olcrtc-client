@@ -47,6 +47,7 @@ type Config struct {
 	VideoBitrate string
 	VideoHW      string
 	VideoQRSize  int
+	VideoCodec   string
 	VP8FPS       int
 	VP8BatchSize int
 }

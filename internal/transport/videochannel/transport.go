@@ -63,6 +63,7 @@ type streamTransport struct {
 	videoBitrate string
 	videoHW      string
 	videoQRSize  int
+	videoCodec   string
 }
 
 // New creates a visual videochannel transport backed by a carrier-specific provider.
@@ -118,6 +119,7 @@ func New(ctx context.Context, cfg transport.Config) (transport.Transport, error)
 		videoBitrate: cfg.VideoBitrate,
 		videoHW:      cfg.VideoHW,
 		videoQRSize:  qrSize,
+		videoCodec:   cfg.VideoCodec,
 	}
 
 	if err := stream.AddTrack(track); err != nil {
@@ -275,7 +277,13 @@ func (p *streamTransport) writerLoop() {
 				return
 			}
 
-			rawFrame, err := renderVisualFrame(payload, p.videoW, p.videoH)
+			var rawFrame []byte
+			var err error
+			if p.videoCodec == "b" {
+				rawFrame, err = renderVisualFrameB(payload, p.videoW, p.videoH)
+			} else {
+				rawFrame, err = renderVisualFrame(payload, p.videoW, p.videoH)
+			}
 			if err != nil {
 				logger.Debugf("videochannel render error: %v", err)
 				continue
@@ -382,7 +390,13 @@ func (p *streamTransport) handleRemoteTrack(track *webrtc.TrackRemote, _ *webrtc
 }
 
 func (p *streamTransport) handleFrame(frame []byte) {
-	payload, err := extractVisualPayload(frame, p.videoW, p.videoH)
+	var payload []byte
+	var err error
+	if p.videoCodec == "b" {
+		payload, err = extractVisualPayloadB(frame, p.videoW, p.videoH)
+	} else {
+		payload, err = extractVisualPayload(frame, p.videoW, p.videoH)
+	}
 	if err != nil || len(payload) == 0 {
 		if err != nil {
 			logger.Debugf("videochannel extract visual payload error: %v", err)

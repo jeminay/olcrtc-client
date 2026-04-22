@@ -29,6 +29,7 @@ func New(ctx context.Context, cfg link.Config) (link.Link, error) {
 		VideoBitrate: cfg.VideoBitrate,
 		VideoHW:      cfg.VideoHW,
 		VideoQRSize:  cfg.VideoQRSize,
+		VideoCodec:   cfg.VideoCodec,
 		VP8FPS:       cfg.VP8FPS,
 		VP8BatchSize: cfg.VP8BatchSize,
 	})
