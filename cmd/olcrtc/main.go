@@ -36,7 +36,8 @@ type config struct {
 	videoFPS       int
 	videoBitrate   string
 	videoHW        string
-	videoQRSize    int
+	videoQRSize     int
+	videoQRRecovery string
 	videoCodec     string
 	videoBModule   int
 	videoBColors   int
@@ -118,6 +119,7 @@ func parseFlags() config {
 	flag.StringVar(&cfg.videoBitrate, "video-bitrate", "", "Video bitrate (videochannel only)")
 	flag.StringVar(&cfg.videoHW, "video-hw", "", "Hardware acceleration (none, nvenc)")
 	flag.IntVar(&cfg.videoQRSize, "video-qr-size", 0, "Video QR code fragment size (videochannel only)")
+	flag.StringVar(&cfg.videoQRRecovery, "video-qr-recovery", "low", "QR error correction: low (7%), medium (15%), high (25%), highest (30%)")
 	flag.StringVar(&cfg.videoCodec, "video-codec", "qrcode", "Visual codec: qrcode (slow, stable) or b (fast, unstable)")
 	flag.IntVar(&cfg.videoBModule, "video-b-module", 4, "B codec pixels per module (default 4)")
 	flag.IntVar(&cfg.videoBColors, "video-b-colors", 8, "B codec colors (4, 8, 16, 32, 64, 128, 256)")
@@ -175,7 +177,8 @@ func toSessionConfig(cfg config) session.Config {
 		VideoFPS:       cfg.videoFPS,
 		VideoBitrate:   cfg.videoBitrate,
 		VideoHW:        cfg.videoHW,
-		VideoQRSize:    cfg.videoQRSize,
+		VideoQRSize:     cfg.videoQRSize,
+		VideoQRRecovery: cfg.videoQRRecovery,
 		VideoCodec:     cfg.videoCodec,
 		VideoBModule:   cfg.videoBModule,
 		VideoBColors:   cfg.videoBColors,

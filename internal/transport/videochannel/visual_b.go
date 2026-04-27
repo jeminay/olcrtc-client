@@ -10,7 +10,7 @@ import (
 	"github.com/zarazaex69/b/go"
 )
 
-func renderVisualFrameB(payload []byte, width, height, modulePx, colors int) ([]byte, error) {
+func renderVisualFrameB(payload []byte, width, height, modulePx, colors int, _ string) ([]byte, error) {
 	rgba := make([]byte, width*height*4)
 	for i := 0; i < len(rgba); i += 4 {
 		rgba[i] = 0xff

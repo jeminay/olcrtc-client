@@ -6,20 +6,33 @@ import (
 	"image"
 	"strings"
 
-	barcodedm "github.com/boombuler/barcode/datamatrix"
 	"github.com/makiuchi-d/gozxing"
-	zxingdm "github.com/makiuchi-d/gozxing/datamatrix"
+	zxingqr "github.com/makiuchi-d/gozxing/qrcode"
+	qrgen "github.com/skip2/go-qrcode"
 )
 
 const (
 	quietZone = 10
 )
 
-func renderVisualFrame(payload []byte, width, height int) ([]byte, error) {
+func parseRecoveryLevel(level string) qrgen.RecoveryLevel {
+	switch level {
+	case "medium":
+		return qrgen.Medium
+	case "high":
+		return qrgen.High
+	case "highest":
+		return qrgen.Highest
+	default:
+		return qrgen.Low
+	}
+}
+
+func renderVisualFrame(payload []byte, width, height int, recoveryLevel string) ([]byte, error) {
 	logicalFrameBytes := width * height
 	frame := make([]byte, logicalFrameBytes)
 	for i := range frame {
-		frame[i] = 0xff // White background
+		frame[i] = 0xff
 	}
 
 	if len(payload) == 0 {
@@ -27,18 +40,16 @@ func renderVisualFrame(payload []byte, width, height int) ([]byte, error) {
 	}
 
 	encoded := base64.StdEncoding.EncodeToString(payload)
-	dm, err := barcodedm.Encode(encoded)
+	qr, err := qrgen.New(encoded, parseRecoveryLevel(recoveryLevel))
 	if err != nil {
-		return nil, fmt.Errorf("datamatrix encode: %w", err)
+		return nil, fmt.Errorf("qrcode encode: %w", err)
 	}
 
-	// Use strict integer scaling to keep edges sharp
-	bounds := dm.Bounds()
-	dmW := bounds.Dx()
-	dmH := bounds.Dy()
+	bitmap := qr.Bitmap()
+	qrSize := len(bitmap)
 
-	scaleW := (width - (quietZone * 2)) / dmW
-	scaleH := (height - (quietZone * 2)) / dmH
+	scaleW := (width - (quietZone * 2)) / qrSize
+	scaleH := (height - (quietZone * 2)) / qrSize
 	scale := scaleW
 	if scaleH < scale {
 		scale = scaleH
@@ -47,16 +58,13 @@ func renderVisualFrame(payload []byte, width, height int) ([]byte, error) {
 		scale = 1
 	}
 
-	totalW := dmW * scale
-	totalH := dmH * scale
-	offsetX := (width - totalW) / 2
-	offsetY := (height - totalH) / 2
+	totalSize := qrSize * scale
+	offsetX := (width - totalSize) / 2
+	offsetY := (height - totalSize) / 2
 
-	for y := 0; y < dmH; y++ {
-		for x := 0; x < dmW; x++ {
-			r, _, _, _ := dm.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
-			if r < 0x8000 {
-				// Fill scale x scale block
+	for y := 0; y < qrSize; y++ {
+		for x := 0; x < qrSize; x++ {
+			if bitmap[y][x] {
 				for sy := 0; sy < scale; sy++ {
 					for sx := 0; sx < scale; sx++ {
 						pixelX := offsetX + (x * scale) + sx
@@ -83,14 +91,13 @@ func extractVisualPayload(frame []byte, width, height int) ([]byte, error) {
 	copy(img.Pix, frame)
 
 	source := gozxing.NewLuminanceSourceFromImage(img)
-	// HybridBinarizer is good for noisy images
 	binarizer := gozxing.NewHybridBinarizer(source)
 	bmp, err := gozxing.NewBinaryBitmap(binarizer)
 	if err != nil {
 		return nil, fmt.Errorf("bitmap: %w", err)
 	}
 
-	reader := zxingdm.NewDataMatrixReader()
+	reader := zxingqr.NewQRCodeReader()
 	hints := make(map[gozxing.DecodeHintType]interface{})
 	hints[gozxing.DecodeHintType_TRY_HARDER] = true
 	hints[gozxing.DecodeHintType_PURE_BARCODE] = true

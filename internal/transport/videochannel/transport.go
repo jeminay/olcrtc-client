@@ -62,8 +62,9 @@ type streamTransport struct {
 	videoFPS     int
 	videoBitrate string
 	videoHW      string
-	videoQRSize  int
-	videoCodec   string
+	videoQRSize     int
+	videoQRRecovery string
+	videoCodec      string
 	videoBModule int
 	videoBColors int
 }
@@ -120,8 +121,9 @@ func New(ctx context.Context, cfg transport.Config) (transport.Transport, error)
 		videoFPS:     cfg.VideoFPS,
 		videoBitrate: cfg.VideoBitrate,
 		videoHW:      cfg.VideoHW,
-		videoQRSize:  qrSize,
-		videoCodec:   cfg.VideoCodec,
+		videoQRSize:     qrSize,
+		videoQRRecovery: cfg.VideoQRRecovery,
+		videoCodec:      cfg.VideoCodec,
 		videoBModule: cfg.VideoBModule,
 		videoBColors: cfg.VideoBColors,
 	}
@@ -284,9 +286,9 @@ func (p *streamTransport) writerLoop() {
 			var rawFrame []byte
 			var err error
 			if p.videoCodec == "b" {
-				rawFrame, err = renderVisualFrameB(payload, p.videoW, p.videoH, p.videoBModule, p.videoBColors)
+				rawFrame, err = renderVisualFrameB(payload, p.videoW, p.videoH, p.videoBModule, p.videoBColors, p.videoQRRecovery)
 			} else {
-				rawFrame, err = renderVisualFrame(payload, p.videoW, p.videoH)
+				rawFrame, err = renderVisualFrame(payload, p.videoW, p.videoH, p.videoQRRecovery)
 			}
 			if err != nil {
 				logger.Debugf("videochannel render error: %v", err)

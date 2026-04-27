@@ -38,8 +38,9 @@ type Config struct {
 	VideoFPS     int
 	VideoBitrate string
 	VideoHW      string
-	VideoQRSize  int
-	VideoCodec   string
+	VideoQRSize     int
+	VideoQRRecovery string
+	VideoCodec      string
 	VideoBModule int
 	VideoBColors int
 	VP8FPS       int

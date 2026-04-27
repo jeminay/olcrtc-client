@@ -77,7 +77,8 @@ type Config struct {
 	VideoFPS       int
 	VideoBitrate   string
 	VideoHW        string
-	VideoQRSize    int
+	VideoQRSize     int
+	VideoQRRecovery string
 	VideoCodec     string
 	VideoBModule   int
 	VideoBColors   int
@@ -228,6 +229,7 @@ func Run(ctx context.Context, cfg Config) error {
 			cfg.VideoBitrate,
 			cfg.VideoHW,
 			cfg.VideoQRSize,
+			cfg.VideoQRRecovery,
 			cfg.VideoCodec,
 			cfg.VP8FPS,
 			cfg.VP8BatchSize,
@@ -250,6 +252,7 @@ func Run(ctx context.Context, cfg Config) error {
 			cfg.VideoBitrate,
 			cfg.VideoHW,
 			cfg.VideoQRSize,
+			cfg.VideoQRRecovery,
 			cfg.VideoCodec,
 			cfg.VP8FPS,
 			cfg.VP8BatchSize,

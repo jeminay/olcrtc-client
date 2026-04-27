@@ -3,7 +3,6 @@ module github.com/openlibrecommunity/olcrtc
 go 1.25.0
 
 require (
-	github.com/boombuler/barcode v1.1.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/livekit/server-sdk-go/v2 v2.16.2
@@ -11,6 +10,7 @@ require (
 	github.com/makiuchi-d/gozxing v0.1.1
 	github.com/pion/rtp v1.10.1
 	github.com/pion/webrtc/v4 v4.2.11
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/zarazaex69/b v0.0.0-20260423064626-c0bd20863b89
 	golang.org/x/crypto v0.50.0
 	golang.org/x/mobile v0.0.0-20260410095206-2cfb76559b7b
