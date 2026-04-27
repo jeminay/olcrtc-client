@@ -10,7 +10,7 @@ import (
 	"github.com/zarazaex69/b/go"
 )
 
-func renderVisualFrameB(payload []byte, width, height int) ([]byte, error) {
+func renderVisualFrameB(payload []byte, width, height, modulePx, colors int) ([]byte, error) {
 	rgba := make([]byte, width*height*4)
 	for i := 0; i < len(rgba); i += 4 {
 		rgba[i] = 0xff
@@ -24,6 +24,12 @@ func renderVisualFrameB(payload []byte, width, height int) ([]byte, error) {
 	}
 
 	cfg := b.DefaultConfig()
+	if modulePx > 0 {
+		cfg.ModulePx = uint32(modulePx)
+	}
+	if colors > 0 {
+		cfg.Colors = uint32(colors)
+	}
 	result, err := b.Encode(payload, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("b encode: %w", err)
@@ -54,7 +60,7 @@ func renderVisualFrameB(payload []byte, width, height int) ([]byte, error) {
 
 var frameCounter int
 
-func extractVisualPayloadB(frame []byte, width, height int) ([]byte, error) {
+func extractVisualPayloadB(frame []byte, width, height, modulePx, colors int) ([]byte, error) {
 	expectedSize := width * height * 4
 	if len(frame) != expectedSize {
 		return nil, fmt.Errorf("unexpected frame size: %d (expected %dx%dx4=%d)", len(frame), width, height, expectedSize)
@@ -72,6 +78,12 @@ func extractVisualPayloadB(frame []byte, width, height int) ([]byte, error) {
 	}
 
 	cfg := b.DefaultConfig()
+	if modulePx > 0 {
+		cfg.ModulePx = uint32(modulePx)
+	}
+	if colors > 0 {
+		cfg.Colors = uint32(colors)
+	}
 	decoded, err := b.Decode(frame, uint32(width), uint32(height), cfg)
 	if err != nil {
 		logger.Debugf("b decode failed: %v", err)

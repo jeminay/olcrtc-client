@@ -64,6 +64,8 @@ type streamTransport struct {
 	videoHW      string
 	videoQRSize  int
 	videoCodec   string
+	videoBModule int
+	videoBColors int
 }
 
 // New creates a visual videochannel transport backed by a carrier-specific provider.
@@ -120,6 +122,8 @@ func New(ctx context.Context, cfg transport.Config) (transport.Transport, error)
 		videoHW:      cfg.VideoHW,
 		videoQRSize:  qrSize,
 		videoCodec:   cfg.VideoCodec,
+		videoBModule: cfg.VideoBModule,
+		videoBColors: cfg.VideoBColors,
 	}
 
 	if err := stream.AddTrack(track); err != nil {
@@ -280,7 +284,7 @@ func (p *streamTransport) writerLoop() {
 			var rawFrame []byte
 			var err error
 			if p.videoCodec == "b" {
-				rawFrame, err = renderVisualFrameB(payload, p.videoW, p.videoH)
+				rawFrame, err = renderVisualFrameB(payload, p.videoW, p.videoH, p.videoBModule, p.videoBColors)
 			} else {
 				rawFrame, err = renderVisualFrame(payload, p.videoW, p.videoH)
 			}
@@ -393,7 +397,7 @@ func (p *streamTransport) handleFrame(frame []byte) {
 	var payload []byte
 	var err error
 	if p.videoCodec == "b" {
-		payload, err = extractVisualPayloadB(frame, p.videoW, p.videoH)
+		payload, err = extractVisualPayloadB(frame, p.videoW, p.videoH, p.videoBModule, p.videoBColors)
 	} else {
 		payload, err = extractVisualPayload(frame, p.videoW, p.videoH)
 	}
