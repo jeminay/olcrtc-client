@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	quietZone = 10
+	quietZone = 2
 )
 
 func parseRecoveryLevel(level string) qrgen.RecoveryLevel {
