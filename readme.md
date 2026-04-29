@@ -38,7 +38,7 @@ mage build
 mage buildCLI
 
 # build cli with b codec, clones b repo, builds libb.so, compiles with -tags b
-mage buildB
+mage buildCLIB
 
 # build ui only
 mage buildUI
