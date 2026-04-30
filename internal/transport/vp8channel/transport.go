@@ -148,8 +148,23 @@ func (p *streamTransport) Close() error {
 	return nil
 }
 
+func (p *streamTransport) drainOutbound() {
+	for {
+		select {
+		case <-p.outbound:
+		default:
+			return
+		}
+	}
+}
+
 func (p *streamTransport) SetReconnectCallback(cb func()) {
-	p.stream.SetReconnectCallback(cb)
+	p.stream.SetReconnectCallback(func() {
+		p.drainOutbound()
+		if cb != nil {
+			cb()
+		}
+	})
 }
 
 func (p *streamTransport) SetShouldReconnect(fn func() bool) {
