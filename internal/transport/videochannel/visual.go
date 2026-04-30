@@ -1,119 +1,68 @@
 package videochannel
 
 import (
-	"encoding/base64"
 	"fmt"
-	"image"
 	"strings"
 
-	"github.com/makiuchi-d/gozxing"
-	zxingqr "github.com/makiuchi-d/gozxing/qrcode"
-	qrgen "github.com/skip2/go-qrcode"
+	grqr "github.com/zarazaex69/gr/qr"
 )
 
-const (
-	quietZone = 2
-)
-
-func parseRecoveryLevel(level string) qrgen.RecoveryLevel {
+func eccLevel(level string) grqr.ECCLevel {
 	switch level {
 	case "medium":
-		return qrgen.Medium
+		return grqr.ECCMedium
 	case "high":
-		return qrgen.High
+		return grqr.ECCQuartile
 	case "highest":
-		return qrgen.Highest
+		return grqr.ECCHigh
 	default:
-		return qrgen.Low
+		return grqr.ECCLow
 	}
 }
 
 func renderVisualFrame(payload []byte, width, height int, recoveryLevel string) ([]byte, error) {
-	logicalFrameBytes := width * height
-	frame := make([]byte, logicalFrameBytes)
-	for i := range frame {
-		frame[i] = 0xff
-	}
-
 	if len(payload) == 0 {
+		frame := make([]byte, width*height)
+		for i := range frame {
+			frame[i] = 0xff
+		}
 		return frame, nil
 	}
 
-	encoded := base64.StdEncoding.EncodeToString(payload)
-	qr, err := qrgen.New(encoded, parseRecoveryLevel(recoveryLevel))
+	codec, err := grqr.New(grqr.Config{
+		FrameW: width,
+		FrameH: height,
+		Margin: 2,
+		ECC:    eccLevel(recoveryLevel),
+	})
 	if err != nil {
-		return nil, fmt.Errorf("qrcode encode: %w", err)
+		return nil, fmt.Errorf("qr codec: %w", err)
 	}
 
-	bitmap := qr.Bitmap()
-	qrSize := len(bitmap)
-
-	scaleW := (width - (quietZone * 2)) / qrSize
-	scaleH := (height - (quietZone * 2)) / qrSize
-	scale := scaleW
-	if scaleH < scale {
-		scale = scaleH
-	}
-	if scale < 1 {
-		scale = 1
-	}
-
-	totalSize := qrSize * scale
-	offsetX := (width - totalSize) / 2
-	offsetY := (height - totalSize) / 2
-
-	for y := 0; y < qrSize; y++ {
-		for x := 0; x < qrSize; x++ {
-			if bitmap[y][x] {
-				for sy := 0; sy < scale; sy++ {
-					for sx := 0; sx < scale; sx++ {
-						pixelX := offsetX + (x * scale) + sx
-						pixelY := offsetY + (y * scale) + sy
-						if pixelX < width && pixelY < height {
-							frame[pixelY*width+pixelX] = 0x00
-						}
-					}
-				}
-			}
-		}
-	}
-
-	return frame, nil
+	return codec.Encode(payload)
 }
 
 func extractVisualPayload(frame []byte, width, height int) ([]byte, error) {
-	logicalFrameBytes := width * height
-	if len(frame) != logicalFrameBytes {
-		return nil, fmt.Errorf("unexpected frame size: %d (expected %dx%d=%d)", len(frame), width, height, logicalFrameBytes)
+	if len(frame) != width*height {
+		return nil, fmt.Errorf("unexpected frame size: %d (expected %dx%d=%d)", len(frame), width, height, width*height)
 	}
 
-	img := image.NewGray(image.Rect(0, 0, width, height))
-	copy(img.Pix, frame)
-
-	source := gozxing.NewLuminanceSourceFromImage(img)
-	binarizer := gozxing.NewHybridBinarizer(source)
-	bmp, err := gozxing.NewBinaryBitmap(binarizer)
+	codec, err := grqr.New(grqr.Config{
+		FrameW: width,
+		FrameH: height,
+		Margin: 2,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("bitmap: %w", err)
+		return nil, fmt.Errorf("qr codec: %w", err)
 	}
 
-	reader := zxingqr.NewQRCodeReader()
-	hints := make(map[gozxing.DecodeHintType]interface{})
-	hints[gozxing.DecodeHintType_TRY_HARDER] = true
-	hints[gozxing.DecodeHintType_PURE_BARCODE] = true
-
-	result, err := reader.Decode(bmp, hints)
+	data, err := codec.Decode(frame)
 	if err != nil {
-		if strings.Contains(err.Error(), "NotFoundException") {
+		if strings.Contains(err.Error(), "NotFoundException") || strings.Contains(err.Error(), "not found") {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("decode: %w", err)
 	}
 
-	decoded, err := base64.StdEncoding.DecodeString(result.GetText())
-	if err != nil {
-		return nil, fmt.Errorf("base64 decode: %w", err)
-	}
-
-	return decoded, nil
+	return data, nil
 }

@@ -7,7 +7,7 @@ import (
 
 func TestVisualRoundTrip(t *testing.T) {
 	payload := []byte("hello over visual videochannel")
-	frame, err := renderVisualFrame(payload, 320, 240)
+	frame, err := renderVisualFrame(payload, 320, 240, "low")
 	if err != nil {
 		t.Fatalf("renderVisualFrame failed: %v", err)
 	}
@@ -22,7 +22,7 @@ func TestVisualRoundTrip(t *testing.T) {
 }
 
 func TestIdleFrameIgnored(t *testing.T) {
-	frame, err := renderVisualFrame(nil, 320, 240)
+	frame, err := renderVisualFrame(nil, 320, 240, "low")
 	if err != nil {
 		t.Fatalf("renderVisualFrame failed: %v", err)
 	}
