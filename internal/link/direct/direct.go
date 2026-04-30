@@ -31,6 +31,8 @@ func New(ctx context.Context, cfg link.Config) (link.Link, error) {
 		VideoQRSize:     cfg.VideoQRSize,
 		VideoQRRecovery: cfg.VideoQRRecovery,
 		VideoCodec:      cfg.VideoCodec,
+		VideoTileModule: cfg.VideoTileModule,
+		VideoTileRS:     cfg.VideoTileRS,
 		VP8FPS:       cfg.VP8FPS,
 		VP8BatchSize: cfg.VP8BatchSize,
 	})

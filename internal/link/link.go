@@ -41,6 +41,8 @@ type Config struct {
 	VideoQRSize     int
 	VideoQRRecovery string
 	VideoCodec      string
+	VideoTileModule int
+	VideoTileRS     int
 	VP8FPS       int
 	VP8BatchSize int
 }

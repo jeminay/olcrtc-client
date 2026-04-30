@@ -63,10 +63,12 @@ func Run(
 	videoQRSize int,
 	videoQRRecovery string,
 	videoCodec string,
+	videoTileModule int,
+	videoTileRS int,
 	vp8FPS int,
 	vp8BatchSize int,
 ) error {
-	return RunWithReady(ctx, linkName, transportName, carrierName, roomURL, keyHex, localAddr, dnsServer, socksUser, socksPass, nil, videoWidth, videoHeight, videoFPS, videoBitrate, videoHW, videoQRSize, videoQRRecovery, videoCodec, vp8FPS, vp8BatchSize)
+	return RunWithReady(ctx, linkName, transportName, carrierName, roomURL, keyHex, localAddr, dnsServer, socksUser, socksPass, nil, videoWidth, videoHeight, videoFPS, videoBitrate, videoHW, videoQRSize, videoQRRecovery, videoCodec, videoTileModule, videoTileRS, vp8FPS, vp8BatchSize)
 }
 
 // RunWithReady is like Run but accepts a callback that is called when the client is ready.
@@ -90,6 +92,8 @@ func RunWithReady(
 	videoQRSize int,
 	videoQRRecovery string,
 	videoCodec string,
+	videoTileModule int,
+	videoTileRS int,
 	vp8FPS int,
 	vp8BatchSize int,
 ) error {
@@ -119,7 +123,7 @@ func RunWithReady(
 
 	const linkCount = 1
 	for i := range linkCount {
-		if err := c.addLink(runCtx, linkName, transportName, carrierName, roomURL, i, cancel, dnsServer, "", 0, videoWidth, videoHeight, videoFPS, videoBitrate, videoHW, videoQRSize, videoQRRecovery, videoCodec, vp8FPS, vp8BatchSize); err != nil {
+		if err := c.addLink(runCtx, linkName, transportName, carrierName, roomURL, i, cancel, dnsServer, "", 0, videoWidth, videoHeight, videoFPS, videoBitrate, videoHW, videoQRSize, videoQRRecovery, videoCodec, videoTileModule, videoTileRS, vp8FPS, vp8BatchSize); err != nil {
 			return fmt.Errorf("addLink failed: %w", err)
 		}
 	}
@@ -225,6 +229,8 @@ func (c *Client) addLink(
 	videoQRSize int,
 	videoQRRecovery string,
 	videoCodec string,
+	videoTileModule int,
+	videoTileRS int,
 	vp8FPS int,
 	vp8BatchSize int,
 ) error {
@@ -245,6 +251,8 @@ func (c *Client) addLink(
 		VideoQRSize:     videoQRSize,
 		VideoQRRecovery: videoQRRecovery,
 		VideoCodec:      videoCodec,
+		VideoTileModule: videoTileModule,
+		VideoTileRS:     videoTileRS,
 		VP8FPS:          vp8FPS,
 		VP8BatchSize:    vp8BatchSize,
 	})

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	grqr "github.com/zarazaex69/gr/qr"
+	grtile "github.com/zarazaex69/gr/tile"
 )
 
 func eccLevel(level string) grqr.ECCLevel {
@@ -20,7 +21,14 @@ func eccLevel(level string) grqr.ECCLevel {
 	}
 }
 
-func renderVisualFrame(payload []byte, width, height int, recoveryLevel string) ([]byte, error) {
+func renderVisualFrame(payload []byte, width, height int, codec, recoveryLevel string, tileModule, tileRS int) ([]byte, error) {
+	if codec == "tile" {
+		return renderTileFrame(payload, tileModule, tileRS)
+	}
+	return renderQRFrame(payload, width, height, recoveryLevel)
+}
+
+func renderQRFrame(payload []byte, width, height int, recoveryLevel string) ([]byte, error) {
 	if len(payload) == 0 {
 		frame := make([]byte, width*height)
 		for i := range frame {
@@ -29,7 +37,7 @@ func renderVisualFrame(payload []byte, width, height int, recoveryLevel string) 
 		return frame, nil
 	}
 
-	codec, err := grqr.New(grqr.Config{
+	c, err := grqr.New(grqr.Config{
 		FrameW: width,
 		FrameH: height,
 		Margin: 2,
@@ -39,15 +47,39 @@ func renderVisualFrame(payload []byte, width, height int, recoveryLevel string) 
 		return nil, fmt.Errorf("qr codec: %w", err)
 	}
 
-	return codec.Encode(payload)
+	return c.Encode(payload)
 }
 
-func extractVisualPayload(frame []byte, width, height int) ([]byte, error) {
+func renderTileFrame(payload []byte, tileModule, tileRS int) ([]byte, error) {
+	if len(payload) == 0 {
+		frame := make([]byte, grtile.FrameW*grtile.FrameH)
+		for i := range frame {
+			frame[i] = 0xff
+		}
+		return frame, nil
+	}
+
+	c, err := grtile.New(grtile.Config{Module: tileModule, RSPercent: tileRS})
+	if err != nil {
+		return nil, fmt.Errorf("tile codec: %w", err)
+	}
+
+	return c.Encode(payload, 0, 1)
+}
+
+func extractVisualPayload(frame []byte, width, height int, codec string, tileModule, tileRS int) ([]byte, error) {
+	if codec == "tile" {
+		return extractTilePayload(frame, tileModule, tileRS)
+	}
+	return extractQRPayload(frame, width, height)
+}
+
+func extractQRPayload(frame []byte, width, height int) ([]byte, error) {
 	if len(frame) != width*height {
 		return nil, fmt.Errorf("unexpected frame size: %d (expected %dx%d=%d)", len(frame), width, height, width*height)
 	}
 
-	codec, err := grqr.New(grqr.Config{
+	c, err := grqr.New(grqr.Config{
 		FrameW: width,
 		FrameH: height,
 		Margin: 2,
@@ -56,7 +88,7 @@ func extractVisualPayload(frame []byte, width, height int) ([]byte, error) {
 		return nil, fmt.Errorf("qr codec: %w", err)
 	}
 
-	data, err := codec.Decode(frame)
+	data, err := c.Decode(frame)
 	if err != nil {
 		if strings.Contains(err.Error(), "NotFoundException") || strings.Contains(err.Error(), "not found") {
 			return nil, nil
@@ -65,4 +97,22 @@ func extractVisualPayload(frame []byte, width, height int) ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+func extractTilePayload(frame []byte, tileModule, tileRS int) ([]byte, error) {
+	if len(frame) != grtile.FrameW*grtile.FrameH {
+		return nil, nil
+	}
+
+	c, err := grtile.New(grtile.Config{Module: tileModule, RSPercent: tileRS})
+	if err != nil {
+		return nil, fmt.Errorf("tile codec: %w", err)
+	}
+
+	result, err := c.Decode(frame)
+	if err != nil {
+		return nil, nil
+	}
+
+	return result.Payload, nil
 }

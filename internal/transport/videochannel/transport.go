@@ -65,6 +65,8 @@ type streamTransport struct {
 	videoQRSize     int
 	videoQRRecovery string
 	videoCodec      string
+	videoTileModule int
+	videoTileRS     int
 }
 
 // New creates a visual videochannel transport backed by a carrier-specific provider.
@@ -102,6 +104,16 @@ func New(ctx context.Context, cfg transport.Config) (transport.Transport, error)
 		qrSize = defaultFragmentSize
 	}
 
+	tileModule := cfg.VideoTileModule
+	if tileModule <= 0 {
+		tileModule = 4
+	}
+
+	tileRS := cfg.VideoTileRS
+	if tileRS < 0 {
+		tileRS = 20
+	}
+
 	tr := &streamTransport{
 		stream:       stream,
 		track:        track,
@@ -122,6 +134,8 @@ func New(ctx context.Context, cfg transport.Config) (transport.Transport, error)
 		videoQRSize:     qrSize,
 		videoQRRecovery: cfg.VideoQRRecovery,
 		videoCodec:      cfg.VideoCodec,
+		videoTileModule: tileModule,
+		videoTileRS:     tileRS,
 	}
 
 	if err := stream.AddTrack(track); err != nil {
@@ -281,7 +295,7 @@ func (p *streamTransport) writerLoop() {
 
 			var rawFrame []byte
 			var err error
-			rawFrame, err = renderVisualFrame(payload, p.videoW, p.videoH, p.videoQRRecovery)
+			rawFrame, err = renderVisualFrame(payload, p.videoW, p.videoH, p.videoCodec, p.videoQRRecovery, p.videoTileModule, p.videoTileRS)
 			if err != nil {
 				logger.Debugf("videochannel render error: %v", err)
 				continue
@@ -390,7 +404,7 @@ func (p *streamTransport) handleRemoteTrack(track *webrtc.TrackRemote, _ *webrtc
 func (p *streamTransport) handleFrame(frame []byte) {
 	var payload []byte
 	var err error
-	payload, err = extractVisualPayload(frame, p.videoW, p.videoH)
+	payload, err = extractVisualPayload(frame, p.videoW, p.videoH, p.videoCodec, p.videoTileModule, p.videoTileRS)
 	if err != nil || len(payload) == 0 {
 		if err != nil {
 			logger.Debugf("videochannel extract visual payload error: %v", err)

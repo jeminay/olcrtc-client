@@ -38,9 +38,11 @@ type config struct {
 	videoHW        string
 	videoQRSize     int
 	videoQRRecovery string
-	videoCodec     string
-	vp8FPS         int
-	vp8BatchSize   int
+	videoCodec      string
+	videoTileModule int
+	videoTileRS     int
+	vp8FPS          int
+	vp8BatchSize    int
 }
 
 func main() {
@@ -118,7 +120,9 @@ func parseFlags() config {
 	flag.StringVar(&cfg.videoHW, "video-hw", "", "Hardware acceleration (none, nvenc)")
 	flag.IntVar(&cfg.videoQRSize, "video-qr-size", 0, "Video QR code fragment size (videochannel only)")
 	flag.StringVar(&cfg.videoQRRecovery, "video-qr-recovery", "low", "QR error correction: low (7%), medium (15%), high (25%), highest (30%)")
-	flag.StringVar(&cfg.videoCodec, "video-codec", "qrcode", "Visual codec: qrcode (slow, stable) or b (fast, unstable)")
+	flag.StringVar(&cfg.videoCodec, "video-codec", "qrcode", "Visual codec: qrcode or tile")
+	flag.IntVar(&cfg.videoTileModule, "video-tile-module", 0, "Tile module size in pixels 1..270 (videochannel tile only, default 4)")
+	flag.IntVar(&cfg.videoTileRS, "video-tile-rs", 0, "Tile Reed-Solomon parity percent 0..200 (videochannel tile only, default 20)")
 	flag.IntVar(&cfg.vp8FPS, "vp8-fps", 0, "VP8 frames per second (vp8channel only, default 25)")
 	flag.IntVar(&cfg.vp8BatchSize, "vp8-batch", 0, "VP8 frames per tick (vp8channel only, default 1)")
 	flag.Parse()
@@ -175,9 +179,11 @@ func toSessionConfig(cfg config) session.Config {
 		VideoHW:        cfg.videoHW,
 		VideoQRSize:     cfg.videoQRSize,
 		VideoQRRecovery: cfg.videoQRRecovery,
-		VideoCodec:     cfg.videoCodec,
-		VP8FPS:         cfg.vp8FPS,
-		VP8BatchSize:   cfg.vp8BatchSize,
+		VideoCodec:      cfg.videoCodec,
+		VideoTileModule: cfg.videoTileModule,
+		VideoTileRS:     cfg.videoTileRS,
+		VP8FPS:          cfg.vp8FPS,
+		VP8BatchSize:    cfg.vp8BatchSize,
 	}
 }
 

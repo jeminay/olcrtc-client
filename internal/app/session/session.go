@@ -48,7 +48,7 @@ var (
 	ErrVideoFPSRequired     = errors.New("video fps required for videochannel (use -video-fps)")
 	ErrVideoBitrateRequired = errors.New("video bitrate required for videochannel (use -video-bitrate)")
 	ErrVideoHWRequired      = errors.New("video hardware acceleration required for videochannel (use -video-hw none/nvenc)")
-	ErrVideoCodecInvalid    = errors.New("invalid video codec for videochannel (use -video-codec qrcode)")
+	ErrVideoCodecInvalid    = errors.New("invalid video codec for videochannel (use -video-codec qrcode or -video-codec tile)")
 
 	// VP8channel errors
 	ErrVP8FPSRequired       = errors.New("vp8 fps required for vp8channel (use -vp8-fps)")
@@ -79,9 +79,11 @@ type Config struct {
 	VideoHW        string
 	VideoQRSize     int
 	VideoQRRecovery string
-	VideoCodec     string
-	VP8FPS         int
-	VP8BatchSize   int
+	VideoCodec      string
+	VideoTileModule int
+	VideoTileRS     int
+	VP8FPS          int
+	VP8BatchSize    int
 }
 
 // RegisterDefaults registers built-in providers and transports.
@@ -179,7 +181,7 @@ func Validate(cfg Config) error {
 		if cfg.VideoHW == "" {
 			return ErrVideoHWRequired
 		}
-		if cfg.VideoCodec != "" && cfg.VideoCodec != "qrcode" {
+		if cfg.VideoCodec != "" && cfg.VideoCodec != "qrcode" && cfg.VideoCodec != "tile" {
 			return ErrVideoCodecInvalid
 		}
 	}
@@ -229,6 +231,8 @@ func Run(ctx context.Context, cfg Config) error {
 			cfg.VideoQRSize,
 			cfg.VideoQRRecovery,
 			cfg.VideoCodec,
+			cfg.VideoTileModule,
+			cfg.VideoTileRS,
 			cfg.VP8FPS,
 			cfg.VP8BatchSize,
 		)
@@ -252,6 +256,8 @@ func Run(ctx context.Context, cfg Config) error {
 			cfg.VideoQRSize,
 			cfg.VideoQRRecovery,
 			cfg.VideoCodec,
+			cfg.VideoTileModule,
+			cfg.VideoTileRS,
 			cfg.VP8FPS,
 			cfg.VP8BatchSize,
 		)
