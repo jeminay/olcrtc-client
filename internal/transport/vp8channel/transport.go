@@ -183,6 +183,8 @@ func (p *streamTransport) writerLoop() {
 	ticker := time.NewTicker(p.frameInterval)
 	defer ticker.Stop()
 
+	sampleDuration := p.frameInterval / time.Duration(p.batchSize)
+
 	for {
 		select {
 		case <-p.closeCh:
@@ -200,7 +202,7 @@ func (p *streamTransport) writerLoop() {
 
 				_ = p.track.WriteSample(media.Sample{
 					Data:     sample,
-					Duration: p.frameInterval,
+					Duration: sampleDuration,
 				})
 				sent++
 
