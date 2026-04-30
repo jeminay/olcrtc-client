@@ -7,11 +7,10 @@ require (
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/livekit/server-sdk-go/v2 v2.16.2
 	github.com/magefile/mage v1.17.1
-	github.com/makiuchi-d/gozxing v0.1.1
 	github.com/pion/rtp v1.10.1
 	github.com/pion/webrtc/v4 v4.2.11
-	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/zarazaex69/b v0.0.0-20260423064626-c0bd20863b89
+	github.com/zarazaex69/gr v0.0.0-20260430014752-23cca5874aef
 	golang.org/x/crypto v0.50.0
 	golang.org/x/mobile v0.0.0-20260410095206-2cfb76559b7b
 )
@@ -42,6 +41,7 @@ require (
 	github.com/livekit/mediatransportutil v0.0.0-20251128105421-19c7a7b81c22 // indirect
 	github.com/livekit/protocol v1.45.3 // indirect
 	github.com/livekit/psrpc v0.7.1 // indirect
+	github.com/makiuchi-d/gozxing v0.1.1 // indirect
 	github.com/moby/sys/user v0.4.0 // indirect
 	github.com/nats-io/nats.go v1.48.0 // indirect
 	github.com/nats-io/nkeys v0.4.15 // indirect
@@ -84,4 +84,7 @@ require (
 	google.golang.org/grpc v1.79.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	rsc.io/qr v0.2.0 // indirect
 )
+
+replace github.com/zarazaex69/gr => ./internal/transport/videochannel/gr
