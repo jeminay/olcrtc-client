@@ -5,9 +5,10 @@
 ![License](https://img.shields.io/badge/license-WTFPL-0D1117?style=flat-square&logo=open-source-initiative&logoColor=green&labelColor=0D1117)
 ![Golang](https://img.shields.io/badge/-Golang-0D1117?style=flat-square&logo=go&logoColor=00A7D0)
 
+# Project rewriting and add [VideoChannel](https://github.com/openlibrecommunity/olcrtc/tree/transport/videochannel)
+
 </div>
 
-# Yandex Deleted DataChannel, project rewite to VideoChannel 
 
 ## About
 olcRTC - across the Sea
