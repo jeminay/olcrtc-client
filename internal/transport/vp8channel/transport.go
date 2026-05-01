@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -58,6 +59,15 @@ type streamTransport struct {
 	startOnce     sync.Once
 	frameInterval time.Duration
 	batchSize     int
+
+	// TX metrics
+	txSendCalls    atomic.Uint64 // Send() invocations
+	txSendBlocked  atomic.Uint64 // Send() that had to block on full outbound
+	txDataSent     atomic.Uint64 // data samples written to track
+	txDataBytes    atomic.Uint64 // total bytes of data samples
+	txKeepaliveTx  atomic.Uint64 // keepalive samples written
+	txWriteErrors  atomic.Uint64 // WriteSample errors
+	txOutboundPeak atomic.Uint64 // max observed outbound depth in window
 }
 
 func New(ctx context.Context, cfg transport.Config) (transport.Transport, error) {
@@ -143,7 +153,19 @@ func (p *streamTransport) Send(data []byte) error {
 	}
 
 	frame := encodeDataFrame(data)
+	p.txSendCalls.Add(1)
 
+	// Fast path
+	select {
+	case <-p.closeCh:
+		return ErrTransportClosed
+	case p.outbound <- frame:
+		return nil
+	default:
+	}
+
+	// Slow path: outbound full, account for the stall.
+	p.txSendBlocked.Add(1)
 	select {
 	case <-p.closeCh:
 		return ErrTransportClosed
@@ -232,15 +254,53 @@ func (p *streamTransport) writerLoop() {
 	}
 	idleTicks := 0
 
+	reportTicker := time.NewTicker(5 * time.Second)
+	defer reportTicker.Stop()
+	var lastCalls, lastBlocked, lastData, lastBytes, lastKa, lastErrs uint64
+	reportFn := func() {
+		calls := p.txSendCalls.Load()
+		blocked := p.txSendBlocked.Load()
+		data := p.txDataSent.Load()
+		bytes := p.txDataBytes.Load()
+		ka := p.txKeepaliveTx.Load()
+		errs := p.txWriteErrors.Load()
+		peak := p.txOutboundPeak.Swap(0)
+
+		dCalls := calls - lastCalls
+		dBlocked := blocked - lastBlocked
+		dData := data - lastData
+		dBytes := bytes - lastBytes
+		dKa := ka - lastKa
+		dErrs := errs - lastErrs
+
+		lastCalls, lastBlocked, lastData, lastBytes, lastKa, lastErrs =
+			calls, blocked, data, bytes, ka, errs
+
+		log.Printf("vp8channel tx[5s]: send=%d blocked=%d data=%d bytes=%d ka=%d werr=%d outQ=%d/%d peak=%d kbps=%.1f",
+			dCalls, dBlocked, dData, dBytes, dKa, dErrs,
+			len(p.outbound), cap(p.outbound), peak,
+			float64(dBytes)*8/1024/5)
+	}
+
 	for {
 		select {
 		case <-p.closeCh:
+			reportFn()
 			return
+		case <-reportTicker.C:
+			reportFn()
 		case <-ticker.C:
+			// Track outbound queue peak for diagnostics.
+			if depth := uint64(len(p.outbound)); depth > p.txOutboundPeak.Load() {
+				p.txOutboundPeak.Store(depth)
+			}
+
 			var sample []byte
+			isData := false
 			select {
 			case frame := <-p.outbound:
 				sample = frame
+				isData = true
 				idleTicks = 0
 			default:
 				idleTicks++
@@ -251,10 +311,21 @@ func (p *streamTransport) writerLoop() {
 				sample = vp8Keepalive
 			}
 
-			_ = p.track.WriteSample(media.Sample{
+			err := p.track.WriteSample(media.Sample{
 				Data:     sample,
 				Duration: sampleInterval,
 			})
+			if err != nil {
+				p.txWriteErrors.Add(1)
+				continue
+			}
+
+			if isData {
+				p.txDataSent.Add(1)
+				p.txDataBytes.Add(uint64(len(sample)))
+			} else {
+				p.txKeepaliveTx.Add(1)
+			}
 		}
 	}
 }
@@ -286,11 +357,72 @@ func (p *streamTransport) readVP8Track(track *webrtc.TrackRemote) {
 	var haveLastSeq bool
 	frameValid := false
 
+	// Loss / reorder metrics, reported every 5s.
+	var (
+		rtpPackets    uint64
+		rtpLostPkts   uint64 // packets we never saw (gap size sum)
+		rtpReorders   uint64 // out-of-order arrivals (small backwards jumps)
+		framesTotal   uint64 // frames marked complete (Marker)
+		framesValid   uint64 // delivered to dispatch
+		framesInvalid uint64 // dropped because of mid-frame loss
+		droppedQueue  uint64 // dropped because inbound chan was full
+	)
+	reportTicker := time.NewTicker(5 * time.Second)
+	defer reportTicker.Stop()
+	reportDone := make(chan struct{})
+	go func() {
+		defer close(reportDone)
+		var lastPkts, lastLost, lastReorder, lastTotal, lastValid, lastInvalid, lastDropped uint64
+		for {
+			select {
+			case <-p.closeCh:
+				return
+			case <-reportTicker.C:
+				pkts := atomic.LoadUint64(&rtpPackets)
+				lost := atomic.LoadUint64(&rtpLostPkts)
+				reord := atomic.LoadUint64(&rtpReorders)
+				total := atomic.LoadUint64(&framesTotal)
+				valid := atomic.LoadUint64(&framesValid)
+				invalid := atomic.LoadUint64(&framesInvalid)
+				dropped := atomic.LoadUint64(&droppedQueue)
+
+				dPkts := pkts - lastPkts
+				dLost := lost - lastLost
+				dReord := reord - lastReorder
+				dTotal := total - lastTotal
+				dValid := valid - lastValid
+				dInvalid := invalid - lastInvalid
+				dDropped := dropped - lastDropped
+
+				lastPkts, lastLost, lastReorder = pkts, lost, reord
+				lastTotal, lastValid, lastInvalid, lastDropped = total, valid, invalid, dropped
+
+				if dPkts == 0 && dTotal == 0 {
+					continue
+				}
+				lossPct := 0.0
+				if total := dPkts + dLost; total > 0 {
+					lossPct = float64(dLost) * 100 / float64(total)
+				}
+				frameLossPct := 0.0
+				if dTotal > 0 {
+					frameLossPct = float64(dInvalid) * 100 / float64(dTotal)
+				}
+				log.Printf("vp8channel rx[5s]: rtp=%d lost=%d (%.2f%%) reorder=%d frames=%d ok=%d bad=%d (%.2f%%) qdrop=%d inboundQ=%d/%d",
+					dPkts, dLost, lossPct, dReord,
+					dTotal, dValid, dInvalid, frameLossPct,
+					dDropped, len(p.inbound), cap(p.inbound))
+			}
+		}
+	}()
+
 	for {
 		n, _, err := track.Read(buf)
 		if err != nil {
+			<-reportDone
 			return
 		}
+		atomic.AddUint64(&rtpPackets, 1)
 
 		pkt := &rtp.Packet{}
 		if pkt.Unmarshal(buf[:n]) != nil {
@@ -305,6 +437,12 @@ func (p *streamTransport) readVP8Track(track *webrtc.TrackRemote) {
 		if haveLastSeq {
 			expected := lastSeq + 1
 			if pkt.SequenceNumber != expected {
+				diff := int16(pkt.SequenceNumber - expected)
+				if diff > 0 {
+					atomic.AddUint64(&rtpLostPkts, uint64(diff))
+				} else {
+					atomic.AddUint64(&rtpReorders, 1)
+				}
 				frameValid = false
 				frameBuf = frameBuf[:0]
 			}
@@ -331,12 +469,15 @@ func (p *streamTransport) readVP8Track(track *webrtc.TrackRemote) {
 		frameBuf = append(frameBuf, vp8Payload...)
 
 		if pkt.Marker {
+			atomic.AddUint64(&framesTotal, 1)
 			data := extractDataFromPayload(frameBuf)
 			frameBuf = frameBuf[:0]
 			frameValid = false
 			if data == nil {
+				atomic.AddUint64(&framesInvalid, 1)
 				continue
 			}
+			atomic.AddUint64(&framesValid, 1)
 			// Copy out of the shared frame buffer before handing the
 			// payload to the dispatch goroutine.
 			payload := make([]byte, len(data))
@@ -348,6 +489,7 @@ func (p *streamTransport) readVP8Track(track *webrtc.TrackRemote) {
 			select {
 			case p.inbound <- payload:
 			default:
+				atomic.AddUint64(&droppedQueue, 1)
 			}
 		}
 	}
