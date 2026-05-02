@@ -41,9 +41,6 @@ mage buildCLI
 # build cli with b codec, clones b repo, builds libb.so, compiles with -tags b
 mage buildCLIB
 
-# build ui only
-mage buildUI
-
 # cross-compile for linux / windows / darwin
 mage cross
 
