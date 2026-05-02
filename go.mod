@@ -9,6 +9,7 @@ require (
 	github.com/magefile/mage v1.17.1
 	github.com/pion/rtp v1.10.1
 	github.com/pion/webrtc/v4 v4.2.11
+	github.com/xtaci/kcp-go/v5 v5.6.72
 	github.com/zarazaex69/b v0.0.0-20260423064626-c0bd20863b89
 	github.com/zarazaex69/gr v0.0.0-20260430043628-45b595f4fef0
 	golang.org/x/crypto v0.50.0
@@ -67,8 +68,6 @@ require (
 	github.com/tjfoc/gmsm v1.4.1 // indirect
 	github.com/twitchtv/twirp v8.1.3+incompatible // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
-	github.com/xtaci/kcp-go/v5 v5.6.72 // indirect
-	github.com/xtaci/smux v1.5.57 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.opentelemetry.io/otel v1.40.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
