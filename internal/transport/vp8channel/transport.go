@@ -2,7 +2,6 @@ package vp8channel
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"sync"
@@ -20,7 +19,6 @@ import (
 const (
 	defaultMaxPayloadSize = 60 * 1024
 	defaultConnectTimeout = 30 * time.Second
-	dataMarker            = 0xFF
 	rtpBufSize            = 65536
 	outboundQueueSize     = 1024
 	inboundQueueSize      = 1024
@@ -33,31 +31,37 @@ var (
 	ErrTransportClosed       = errors.New("vp8channel transport closed")
 )
 
-// vp8Keepalive is a minimal VP8 keyframe used as idle filler. It must be
-// a keyframe (P-bit=0) so that the SFU/decoder has a valid reference and
-// forwards subsequent frames; switching to a P-frame here causes the SFU
-// to drop the entire stream until a keyframe arrives.
+// vp8Keepalive is a minimal VP8 keyframe used as idle filler so that the SFU
+// keeps the track flowing when KCP has nothing to send. It is never delivered
+// to KCP because KCP packets always start with the convid (0xC0FFEE01 LE)
+// and would never collide with this keyframe payload.
 var vp8Keepalive = []byte{
 	0x30, 0x01, 0x00, 0x9d, 0x01, 0x2a, 0x10, 0x00,
 	0x10, 0x00, 0x00, 0x47, 0x08, 0x85, 0x85, 0x88,
 	0x99, 0x84, 0x88, 0xfc,
 }
 
+// kcpMagic is the little-endian first byte of a KCP packet (low byte of
+// kcpConvID = 0xC0FFEE01). Anything that does not match is treated as
+// non-KCP traffic (idle keepalives, stray frames after reconnect) and
+// dropped before reaching the protocol stack.
+const kcpMagic = byte(0x01)
+
 type streamTransport struct {
 	stream        carrier.VideoTrack
 	track         *webrtc.TrackLocalStaticSample
 	onData        func([]byte)
 	outbound      chan []byte
-	inbound       chan []byte
 	closeCh       chan struct{}
 	writerDone    chan struct{}
-	dispatchDone  chan struct{}
 	closed        atomic.Bool
 	writerUp      atomic.Bool
-	dispatchUp    atomic.Bool
 	startOnce     sync.Once
 	frameInterval time.Duration
 	batchSize     int
+
+	kcp   *kcpRuntime
+	kcpMu sync.RWMutex
 }
 
 func New(ctx context.Context, cfg transport.Config) (transport.Transport, error) {
@@ -103,10 +107,8 @@ func New(ctx context.Context, cfg transport.Config) (transport.Transport, error)
 		track:         track,
 		onData:        cfg.OnData,
 		outbound:      make(chan []byte, outboundQueueSize),
-		inbound:       make(chan []byte, inboundQueueSize),
 		closeCh:       make(chan struct{}),
 		writerDone:    make(chan struct{}),
-		dispatchDone:  make(chan struct{}),
 		frameInterval: time.Second / time.Duration(fps),
 		batchSize:     batchSize,
 	}
@@ -127,14 +129,25 @@ func (p *streamTransport) Connect(ctx context.Context) error {
 		return err
 	}
 
+	var startErr error
 	p.startOnce.Do(func() {
+		// Start KCP first so the writerLoop has packets to forward as soon
+		// as it begins ticking. KCP's own update goroutine drives keepalives
+		// and ACKs once the session is up.
+		rt, err := startKCP(p.outbound, p.onData)
+		if err != nil {
+			startErr = err
+			return
+		}
+		p.kcpMu.Lock()
+		p.kcp = rt
+		p.kcpMu.Unlock()
+
 		p.writerUp.Store(true)
 		go p.writerLoop()
-		p.dispatchUp.Store(true)
-		go p.dispatchLoop()
 	})
 
-	return nil
+	return startErr
 }
 
 func (p *streamTransport) Send(data []byte) error {
@@ -142,24 +155,29 @@ func (p *streamTransport) Send(data []byte) error {
 		return ErrTransportClosed
 	}
 
-	frame := encodeDataFrame(data)
-
-	select {
-	case <-p.closeCh:
+	p.kcpMu.RLock()
+	rt := p.kcp
+	p.kcpMu.RUnlock()
+	if rt == nil {
 		return ErrTransportClosed
-	case p.outbound <- frame:
-		return nil
 	}
+
+	return rt.send(data)
 }
 
 func (p *streamTransport) Close() error {
 	if p.closed.CompareAndSwap(false, true) {
 		close(p.closeCh)
+
+		p.kcpMu.RLock()
+		rt := p.kcp
+		p.kcpMu.RUnlock()
+		if rt != nil {
+			rt.close()
+		}
+
 		if p.writerUp.Load() {
 			<-p.writerDone
-		}
-		if p.dispatchUp.Load() {
-			<-p.dispatchDone
 		}
 		return p.stream.Close()
 	}
@@ -178,6 +196,10 @@ func (p *streamTransport) drainOutbound() {
 
 func (p *streamTransport) SetReconnectCallback(cb func()) {
 	p.stream.SetReconnectCallback(func() {
+		// Drain stale KCP segments queued for the old wire. KCP will
+		// retransmit anything that mattered after the link is back up,
+		// so dropping the queue here only saves us from sending obsolete
+		// data that the peer would discard anyway.
 		p.drainOutbound()
 		if cb != nil {
 			cb()
@@ -202,10 +224,13 @@ func (p *streamTransport) CanSend() bool {
 		len(p.outbound) < cap(p.outbound)*canSendHighWatermark/100
 }
 
+// Features advertises reliable+ordered semantics now that KCP guarantees
+// in-order delivery with retransmits. The upper layer (mux/curl tunnel)
+// can rely on these properties end-to-end.
 func (p *streamTransport) Features() transport.Features {
 	return transport.Features{
-		Reliable:        false,
-		Ordered:         false,
+		Reliable:        true,
+		Ordered:         true,
 		MessageOriented: true,
 		MaxPayloadSize:  defaultMaxPayloadSize,
 	}
@@ -299,9 +324,9 @@ func (p *streamTransport) readVP8Track(track *webrtc.TrackRemote) {
 
 		// Detect packet loss / reordering. A single missing RTP packet
 		// inside a fragmented VP8 frame would otherwise silently corrupt
-		// the assembled payload (and bleed into the next frame), so we
-		// invalidate the current assembly and only resume on a fresh
-		// start-of-partition packet.
+		// the assembled payload (and bleed into the next frame). KCP can
+		// recover from full-frame drops, but only if the frames it does
+		// receive are byte-perfect.
 		if haveLastSeq {
 			expected := lastSeq + 1
 			if pkt.SequenceNumber != expected {
@@ -331,57 +356,20 @@ func (p *streamTransport) readVP8Track(track *webrtc.TrackRemote) {
 		frameBuf = append(frameBuf, vp8Payload...)
 
 		if pkt.Marker {
-			data := extractDataFromPayload(frameBuf)
+			if len(frameBuf) >= 4 && frameBuf[0] == kcpMagic {
+				p.kcpMu.RLock()
+				rt := p.kcp
+				p.kcpMu.RUnlock()
+				if rt != nil {
+					// Copy out of the shared frame buffer before handing
+					// the payload off — KCP's deliver path is async.
+					payload := make([]byte, len(frameBuf))
+					copy(payload, frameBuf)
+					rt.deliver(payload)
+				}
+			}
 			frameBuf = frameBuf[:0]
 			frameValid = false
-			if data == nil {
-				continue
-			}
-			// Copy out of the shared frame buffer before handing the
-			// payload to the dispatch goroutine.
-			payload := make([]byte, len(data))
-			copy(payload, data)
-
-			// Non-blocking enqueue: dropping is preferable to stalling
-			// the RTP read loop, which would let pion's UDP buffer
-			// overflow and cause cascading packet loss.
-			select {
-			case p.inbound <- payload:
-			default:
-			}
 		}
 	}
-}
-
-func (p *streamTransport) dispatchLoop() {
-	defer close(p.dispatchDone)
-	for {
-		select {
-		case <-p.closeCh:
-			return
-		case payload := <-p.inbound:
-			if p.onData != nil {
-				p.onData(payload)
-			}
-		}
-	}
-}
-
-func encodeDataFrame(data []byte) []byte {
-	frame := make([]byte, 5+len(data))
-	frame[0] = dataMarker
-	binary.BigEndian.PutUint32(frame[1:5], uint32(len(data)))
-	copy(frame[5:], data)
-	return frame
-}
-
-func extractDataFromPayload(frame []byte) []byte {
-	if len(frame) < 5 || frame[0] != dataMarker {
-		return nil
-	}
-	length := binary.BigEndian.Uint32(frame[1:5])
-	if len(frame) < int(5+length) {
-		return nil
-	}
-	return frame[5 : 5+length]
 }
