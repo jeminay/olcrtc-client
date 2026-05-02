@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"math/rand/v2"
 	"net/http"
 	"runtime"
@@ -379,11 +378,6 @@ func (p *Peer) setupDataChannelHandlers(dcReady chan struct{}, sessionCloseCh ch
 				p.processSendQueue(workerID, sessionCloseCh)
 			}(i)
 		}
-		p.wg.Add(1)
-		go func() {
-			defer p.wg.Done()
-			p.monitorQueue(sessionCloseCh)
-		}()
 		close(dcReady)
 	})
 
@@ -1435,26 +1429,6 @@ func (p *Peer) calculateDelay() time.Duration {
 	}
 	//nolint:gosec
 	return minDelay + time.Duration(rand.Int64N(int64(maxDelay-minDelay)))
-}
-
-func (p *Peer) monitorQueue(sessionCloseCh <-chan struct{}) {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-sessionCloseCh:
-			return
-		case <-p.closeCh:
-			return
-		case <-ticker.C:
-			queueLen := len(p.sendQueue)
-			buffered := p.dc.BufferedAmount()
-			if queueLen > 100 || buffered > 1024*1024 {
-				log.Printf("queue=%d buf=%dMB", queueLen, buffered/(1024*1024))
-			}
-		}
-	}
 }
 
 // CanSend checks if data can be sent.

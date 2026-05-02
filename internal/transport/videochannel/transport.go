@@ -517,15 +517,11 @@ func (p *streamTransport) handleFrame(frame []byte) {
 		return
 	}
 
-	logger.Debugf("videochannel extracted visual payload: len=%d", len(payload))
-
 	decoded, err := decodeTransportFrame(payload)
 	if err != nil {
 		logger.Debugf("videochannel decode transport frame error: %v", err)
 		return
 	}
-
-	logger.Debugf("videochannel transport frame: type=%d seq=%d crc=%x", decoded.typ, decoded.seq, decoded.crc)
 
 	switch decoded.typ {
 	case frameTypeAck:
