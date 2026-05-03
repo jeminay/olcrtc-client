@@ -137,7 +137,7 @@ func SetDebug(enabled bool) {
 }
 
 // Start launches the olcRTC client in background.
-// carrierName: carrier/provider name ("telemost", "jazz", "wbstream", "wb_stream")
+// carrierName: carrier/provider name ("telemost", "jazz", "wbstream", "wbstream")
 // roomID: carrier-specific room ID
 // keyHex: 64-char hex encryption key
 // socksPort: local SOCKS5 proxy port (e.g. 10808)
@@ -351,7 +351,7 @@ func normalizeTransport(value string) string {
 }
 
 func normalizeCarrier(carrierName string) string {
-	if carrierName == "wb_stream" {
+	if carrierName == "wbstream" {
 		return "wbstream"
 	}
 	return carrierName
