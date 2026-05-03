@@ -45,6 +45,7 @@ const (
 	defaultTransport = "vp8channel"
 	dataTransport    = "datachannel"
 	defaultDNSServer = "1.1.1.1:53"
+	carrierWBStream  = "wbstream"
 )
 
 //nolint:gochecknoglobals // Mobile bindings expose a singleton runtime controlled by the embedding app.
