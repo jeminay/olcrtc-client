@@ -352,8 +352,8 @@ func normalizeTransport(value string) string {
 }
 
 func normalizeCarrier(carrierName string) string {
-	if carrierName == "wbstream" {
-		return "wbstream"
+	if carrierName == carrierWBStream {
+		return carrierWBStream
 	}
 	return carrierName
 }
@@ -367,7 +367,7 @@ func buildRoomURL(carrierName, roomID string) string {
 			return "any"
 		}
 		return roomID
-	case "wbstream":
+	case carrierWBStream:
 		return roomID
 	default:
 		return roomID
