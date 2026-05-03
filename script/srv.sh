@@ -186,7 +186,7 @@ if [ "$TRANSPORT" = "videochannel" ]; then
             VIDEO_CODEC="tile"
             VIDEO_W=1080
             VIDEO_H=1080
-            echo "[*] Tile codec selected — forcing 1080x1080"
+            echo "[*] Tile codec selected - forcing 1080x1080"
 
             read -p "Tile module size in pixels 1..270 [default: 4]: " VTILE_MOD_INPUT
             VIDEO_TILE_MODULE=${VTILE_MOD_INPUT:-4}
