@@ -9,31 +9,31 @@
 
 
 ## About
-olcRTC - across the Sea
+olcRTC - across the sea
 
 Project that allows users to bypass blocking by parasitizing and tunneling on unblocked and whitelisted services in Russia, use legal webRTC services
 
-## satus
+## Status
 
-beta
+Beta
 <br>
-see all info in [issues](https://github.com/openlibrecommunity/olcrtc/issues)
+See all info in [issues](https://github.com/openlibrecommunity/olcrtc/issues)
 <br>
-issues? contact us at [@openlibrecommunity](https://t.me/openlibrecommunity)
+Issues? contact us at [@openlibrecommunity](https://t.me/openlibrecommunity)
 <br>
-or wait for the release or at least a release
+Or wait for the release or at least a release
 
 ## Read docs for start 
 
-[for noobs](docs/fast.md)
+[For noobs](docs/fast.md)
 
-[manual](docs/manual.md)
+[Manual](docs/manual.md)
 
-[setting matrix](docs/settings.md)
+[Setting matrix](docs/settings.md)
 
 
 
-## build
+## Build
 
 ```bash
 # install mage first
