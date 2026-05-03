@@ -123,7 +123,7 @@ func SetVP8Options(fps, batchSize int) {
 	defer mu.Unlock()
 	ensureDefaultConfigLocked()
 	defaults.vp8FPS = clamp(fps, 1, 120)
-	defaults.vp8BatchSize = clamp(batchSize, 1, 32)
+	defaults.vp8BatchSize = clamp(batchSize, 1, 64)
 }
 
 // SetDebug enables or disables verbose logging.
