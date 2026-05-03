@@ -15,6 +15,7 @@ require (
 	github.com/zarazaex69/gr v0.0.0-20260430043628-45b595f4fef0
 	golang.org/x/crypto v0.50.0
 	golang.org/x/mobile v0.0.0-20260410095206-2cfb76559b7b
+	google.golang.org/genproto v0.0.0-20260209200024-4cfbd4190f57
 )
 
 require (
