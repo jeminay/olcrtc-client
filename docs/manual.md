@@ -28,7 +28,29 @@ dnf install go  # Fedora
 
 ### Debian / Ubuntu (системный пакет устаревший)
 
-На Debian/Ubuntu в репозитории обычно Go 1.19. Нужно поставить нужную версию через SDK:
+На Debian/Ubuntu в репозитории обычно Go 1.19.
+
+На Debian 13 лучше через `testing` c `APT Pinning`, чтобы не засорять ОС:
+
+```sh
+echo 'deb http://deb.debian.org/debian/ testing main non-free-firmware' | sudo tee /etc/apt/sources.list.d/testing.list
+
+cat <<EOF | sudo tee /etc/apt/preferences.d/testing-pin
+Package: *
+Pin: release a=testing
+Pin-Priority: 100
+EOF
+
+sudo apt update
+sudo apt install -t testing golang-1.26
+
+sudo update-alternatives --install /usr/bin/go go `which go` 10
+sudo update-alternatives --install /usr/bin/gofmt gofmt `which gofmt` 10
+sudo update-alternatives --install /usr/bin/go go /usr/lib/go-1.26/bin/go 20
+sudo update-alternatives --install /usr/bin/gofmt gofmt /usr/lib/go-1.26/bin/gofmt 20
+```
+
+Иначе через SDK:
 
 ```sh
 apt install golang                          # ставим старый go - он нужен только чтобы скачать новый
