@@ -8,7 +8,6 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	lksdk "github.com/livekit/server-sdk-go/v2"
 	"github.com/pion/webrtc/v4"
@@ -40,9 +39,6 @@ type Peer struct {
 	sendCount       atomic.Uint64
 	publishCount    atomic.Uint64
 	recvCount       atomic.Uint64
-	enqueueBytes    atomic.Uint64
-	publishBytes    atomic.Uint64
-	recvBytes       atomic.Uint64
 	closed          atomic.Bool
 	done            chan struct{}
 	cancel          context.CancelFunc
@@ -75,14 +71,16 @@ func (p *Peer) Connect(ctx context.Context) error {
 	roomCB := &lksdk.RoomCallback{
 		ParticipantCallback: lksdk.ParticipantCallback{
 			OnDataReceived: func(data []byte, params lksdk.DataReceiveParams) {
-				_ = params
-				p.recvCount.Add(1)
-				p.recvBytes.Add(uint64(len(data)))
+				cnt := p.recvCount.Add(1)
+				if cnt <= 20 || cnt%100 == 0 {
+					log.Printf("WBDEBUG recv #%d len=%d topic=%q sender=%q", cnt, len(data), params.Topic, params.SenderIdentity)
+				}
 				if p.onData != nil {
 					p.onData(data)
 				}
 			},
 			OnTrackSubscribed: func(track *webrtc.TrackRemote, _ *lksdk.RemoteTrackPublication, _ *lksdk.RemoteParticipant) {
+				log.Printf("WBDEBUG track subscribed kind=%s codec=%s", track.Kind().String(), track.Codec().MimeType)
 				if track.Kind() != webrtc.RTPCodecTypeVideo {
 					return
 				}
@@ -94,6 +92,18 @@ func (p *Peer) Connect(ctx context.Context) error {
 					cb(track, nil)
 				}
 			},
+		},
+		OnParticipantConnected: func(participant *lksdk.RemoteParticipant) {
+			log.Printf("WBDEBUG participant connected sid=%q identity=%q name=%q", participant.SID(), participant.Identity(), participant.Name())
+		},
+		OnParticipantDisconnected: func(participant *lksdk.RemoteParticipant) {
+			log.Printf("WBDEBUG participant disconnected sid=%q identity=%q name=%q", participant.SID(), participant.Identity(), participant.Name())
+		},
+		OnReconnecting: func() {
+			log.Printf("WBDEBUG room reconnecting")
+		},
+		OnReconnected: func() {
+			log.Printf("WBDEBUG room reconnected")
 		},
 		OnDisconnected: func() {
 			if p.onEnded != nil {
@@ -108,12 +118,12 @@ func (p *Peer) Connect(ctx context.Context) error {
 	}
 
 	p.room = room
+	log.Printf("WBDEBUG connected room=%q local_sid=%q local_identity=%q state=%s", room.Name(), room.LocalParticipant.SID(), room.LocalParticipant.Identity(), room.ConnectionState())
 	if err := p.publishPendingTracks(); err != nil {
 		return err
 	}
-	p.wg.Add(2)
+	p.wg.Add(1)
 	go p.processSendQueue()
-	go p.logMetrics()
 
 	return nil
 }
@@ -171,8 +181,10 @@ func (p *Peer) processSendQueue() {
 			if !ok {
 				return
 			}
-			p.publishCount.Add(1)
-			p.publishBytes.Add(uint64(len(data)))
+			cnt := p.publishCount.Add(1)
+			if cnt <= 20 || cnt%100 == 0 {
+				log.Printf("WBDEBUG publish #%d len=%d queue=%d state=%s", cnt, len(data), len(p.sendQueue), p.room.ConnectionState())
+			}
 			if err := p.room.LocalParticipant.PublishDataPacket(
 				lksdk.UserData(data),
 				lksdk.WithDataPublishTopic("olcrtc"),
@@ -184,50 +196,19 @@ func (p *Peer) processSendQueue() {
 	}
 }
 
-func (p *Peer) logMetrics() {
-	defer p.wg.Done()
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-	var lastEnqBytes, lastPubBytes, lastRecvBytes uint64
-	var lastEnqCount, lastPubCount, lastRecvCount uint64
-	for {
-		select {
-		case <-p.done:
-			return
-		case <-ticker.C:
-			enqBytes := p.enqueueBytes.Load()
-			pubBytes := p.publishBytes.Load()
-			recvBytes := p.recvBytes.Load()
-			enqCount := p.sendCount.Load()
-			pubCount := p.publishCount.Load()
-			recvCount := p.recvCount.Load()
-			state := "nil"
-			if p.room != nil {
-				state = string(p.room.ConnectionState())
-			}
-			log.Printf("METRICS wb enq=%.1fKB/s pub=%.1fKB/s rx=%.1fKB/s enq_msg/s=%.1f pub_msg/s=%.1f rx_msg/s=%.1f queue=%d state=%s",
-				float64(enqBytes-lastEnqBytes)/5.0/1024.0,
-				float64(pubBytes-lastPubBytes)/5.0/1024.0,
-				float64(recvBytes-lastRecvBytes)/5.0/1024.0,
-				float64(enqCount-lastEnqCount)/5.0,
-				float64(pubCount-lastPubCount)/5.0,
-				float64(recvCount-lastRecvCount)/5.0,
-				len(p.sendQueue),
-				state,
-			)
-			lastEnqBytes, lastPubBytes, lastRecvBytes = enqBytes, pubBytes, recvBytes
-			lastEnqCount, lastPubCount, lastRecvCount = enqCount, pubCount, recvCount
-		}
-	}
-}
-
 // Send transmits data to the room.
 func (p *Peer) Send(data []byte) error {
 	if p.closed.Load() {
 		return ErrPeerClosed
 	}
-	p.sendCount.Add(1)
-	p.enqueueBytes.Add(uint64(len(data)))
+	cnt := p.sendCount.Add(1)
+	if cnt <= 20 || cnt%100 == 0 {
+		state := "nil"
+		if p.room != nil {
+			state = string(p.room.ConnectionState())
+		}
+		log.Printf("WBDEBUG send enqueue #%d len=%d queue=%d state=%s", cnt, len(data), len(p.sendQueue), state)
+	}
 	select {
 	case p.sendQueue <- data:
 		return nil

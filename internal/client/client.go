@@ -219,6 +219,7 @@ func smuxConfig() *smux.Config {
 	cfg.MaxFrameSize = 32768
 	cfg.MaxReceiveBuffer = 16 * 1024 * 1024
 	cfg.MaxStreamBuffer = 1024 * 1024
+	cfg.KeepAliveDisabled = true
 	cfg.KeepAliveInterval = 10 * time.Second
 	cfg.KeepAliveTimeout = 60 * time.Second
 	return cfg
@@ -306,13 +307,16 @@ func (c *Client) handleSocks5(_ context.Context, conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 
 	if err := c.socks5Handshake(conn); err != nil {
+		logger.Warnf("SOCKS handshake failed: %v", err)
 		return
 	}
 
 	targetAddr, targetPort, err := c.socks5Request(conn)
 	if err != nil {
+		logger.Warnf("SOCKS request failed: %v", err)
 		return
 	}
+	logger.Infof("SOCKS request target %s:%d", targetAddr, targetPort)
 
 	c.sessMu.RLock()
 	sess := c.session
@@ -437,6 +441,12 @@ func (c *Client) readSocks5Addr(conn net.Conn, addrType byte) (string, error) {
 			return "", fmt.Errorf("read socks5 domain: %w", err)
 		}
 		return string(buf), nil
+	case 4: // IPv6
+		buf := make([]byte, 16)
+		if _, err := io.ReadFull(conn, buf); err != nil {
+			return "", fmt.Errorf("read socks5 ipv6: %w", err)
+		}
+		return net.IP(buf).String(), nil
 	default:
 		return "", fmt.Errorf("%w: %d", ErrUnsupportedAddressType, addrType)
 	}

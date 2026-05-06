@@ -149,6 +149,7 @@ func smuxConfig() *smux.Config {
 	cfg.MaxFrameSize = 32768
 	cfg.MaxReceiveBuffer = 16 * 1024 * 1024
 	cfg.MaxStreamBuffer = 1024 * 1024
+	cfg.KeepAliveDisabled = true
 	cfg.KeepAliveInterval = 10 * time.Second
 	cfg.KeepAliveTimeout = 60 * time.Second
 	return cfg

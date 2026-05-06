@@ -8,7 +8,6 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	lksdk "github.com/livekit/server-sdk-go/v2"
 	"github.com/pion/webrtc/v4"
@@ -37,12 +36,6 @@ type Peer struct {
 	shouldReconnect func() bool
 	onEnded         func(string)
 	sendQueue       chan []byte
-	sendCount       atomic.Uint64
-	publishCount    atomic.Uint64
-	recvCount       atomic.Uint64
-	enqueueBytes    atomic.Uint64
-	publishBytes    atomic.Uint64
-	recvBytes       atomic.Uint64
 	closed          atomic.Bool
 	done            chan struct{}
 	cancel          context.CancelFunc
@@ -74,10 +67,7 @@ func (p *Peer) Connect(ctx context.Context) error {
 
 	roomCB := &lksdk.RoomCallback{
 		ParticipantCallback: lksdk.ParticipantCallback{
-			OnDataReceived: func(data []byte, params lksdk.DataReceiveParams) {
-				_ = params
-				p.recvCount.Add(1)
-				p.recvBytes.Add(uint64(len(data)))
+			OnDataReceived: func(data []byte, _ lksdk.DataReceiveParams) {
 				if p.onData != nil {
 					p.onData(data)
 				}
@@ -102,7 +92,7 @@ func (p *Peer) Connect(ctx context.Context) error {
 		},
 	}
 
-	room, err := lksdk.ConnectToRoomWithToken(wsURL, token, roomCB, lksdk.WithAutoSubscribe(true), lksdk.WithICETransportPolicy(webrtc.ICETransportPolicyRelay))
+	room, err := lksdk.ConnectToRoomWithToken(wsURL, token, roomCB, lksdk.WithAutoSubscribe(true))
 	if err != nil {
 		return fmt.Errorf("connect to room: %w", err)
 	}
@@ -111,9 +101,8 @@ func (p *Peer) Connect(ctx context.Context) error {
 	if err := p.publishPendingTracks(); err != nil {
 		return err
 	}
-	p.wg.Add(2)
+	p.wg.Add(1)
 	go p.processSendQueue()
-	go p.logMetrics()
 
 	return nil
 }
@@ -171,8 +160,6 @@ func (p *Peer) processSendQueue() {
 			if !ok {
 				return
 			}
-			p.publishCount.Add(1)
-			p.publishBytes.Add(uint64(len(data)))
 			if err := p.room.LocalParticipant.PublishDataPacket(
 				lksdk.UserData(data),
 				lksdk.WithDataPublishTopic("olcrtc"),
@@ -184,50 +171,11 @@ func (p *Peer) processSendQueue() {
 	}
 }
 
-func (p *Peer) logMetrics() {
-	defer p.wg.Done()
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-	var lastEnqBytes, lastPubBytes, lastRecvBytes uint64
-	var lastEnqCount, lastPubCount, lastRecvCount uint64
-	for {
-		select {
-		case <-p.done:
-			return
-		case <-ticker.C:
-			enqBytes := p.enqueueBytes.Load()
-			pubBytes := p.publishBytes.Load()
-			recvBytes := p.recvBytes.Load()
-			enqCount := p.sendCount.Load()
-			pubCount := p.publishCount.Load()
-			recvCount := p.recvCount.Load()
-			state := "nil"
-			if p.room != nil {
-				state = string(p.room.ConnectionState())
-			}
-			log.Printf("METRICS wb enq=%.1fKB/s pub=%.1fKB/s rx=%.1fKB/s enq_msg/s=%.1f pub_msg/s=%.1f rx_msg/s=%.1f queue=%d state=%s",
-				float64(enqBytes-lastEnqBytes)/5.0/1024.0,
-				float64(pubBytes-lastPubBytes)/5.0/1024.0,
-				float64(recvBytes-lastRecvBytes)/5.0/1024.0,
-				float64(enqCount-lastEnqCount)/5.0,
-				float64(pubCount-lastPubCount)/5.0,
-				float64(recvCount-lastRecvCount)/5.0,
-				len(p.sendQueue),
-				state,
-			)
-			lastEnqBytes, lastPubBytes, lastRecvBytes = enqBytes, pubBytes, recvBytes
-			lastEnqCount, lastPubCount, lastRecvCount = enqCount, pubCount, recvCount
-		}
-	}
-}
-
 // Send transmits data to the room.
 func (p *Peer) Send(data []byte) error {
 	if p.closed.Load() {
 		return ErrPeerClosed
 	}
-	p.sendCount.Add(1)
-	p.enqueueBytes.Add(uint64(len(data)))
 	select {
 	case p.sendQueue <- data:
 		return nil
