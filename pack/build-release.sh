@@ -66,13 +66,28 @@ pushd "${BUILDDIR}" >/dev/null
 zip -9 -u "../${ZIP}" olcrtc.exe
 popd >/dev/null
 
+# Download sing-box if not present
+SINGBOX_VERSION="1.13.11"
+SINGBOX_URL="https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VERSION}/sing-box-${SINGBOX_VERSION}-windows-amd64.zip"
+
+if [ ! -f "${BUILDDIR}/sing-box.exe" ]; then
+    echo ""
+    echo "Downloading sing-box v${SINGBOX_VERSION}..."
+    TMPZIP=$(mktemp /tmp/sing-box-XXXXXX.zip)
+    curl -sL "$SINGBOX_URL" -o "$TMPZIP"
+    unzip -jo "$TMPZIP" "sing-box-${SINGBOX_VERSION}-windows-amd64/sing-box.exe" -d "${BUILDDIR}/"
+    rm -f "$TMPZIP"
+    echo "  → ${BUILDDIR}/sing-box.exe"
+fi
+
+# Add sing-box to zip
+pushd "${BUILDDIR}" >/dev/null
+zip -9 -u "../${ZIP}" sing-box.exe
+popd >/dev/null
+
 echo "  → ${ZIP} ($(du -h ${ZIP} | cut -f1))"
 echo ""
 echo "=== Done ==="
-echo ""
-echo "Note: sing-box.exe must be added manually."
-echo "  Download from: https://github.com/SagerNet/sing-box/releases"
-echo "  Then: zip -u ${ZIP} sing-box.exe"
 echo ""
 echo "Upload to GitHub:"
 echo "  gh release create ${VERSION} ${ZIP} --title '${VERSION}' --notes 'Release ${VERSION}'"
