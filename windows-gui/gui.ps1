@@ -183,9 +183,16 @@ function Cur-Conf {
 }
 function Set-Status($text,$color) { $status.Text = 'Status: ' + $text; $status.ForeColor = $color }
 
+function Stop-Tree($p) {
+  try {
+    if($p -and -not $p.HasExited) { & taskkill.exe /PID $p.Id /T /F | Out-Null }
+  } catch {
+    try { if($p -and -not $p.HasExited){ $p.Kill() } } catch {}
+  }
+}
 function Stop-All {
-  try { if($global:sbProc -and -not $global:sbProc.HasExited){ $global:sbProc.Kill() } } catch {}
-  try { if($global:olcProc -and -not $global:olcProc.HasExited){ $global:olcProc.Kill() } } catch {}
+  Stop-Tree $global:sbProc
+  Stop-Tree $global:olcProc
   try { Get-Process -Name sing-box -ErrorAction SilentlyContinue | Stop-Process -Force } catch {}
   try { Get-Process -Name olcrtc -ErrorAction SilentlyContinue | Stop-Process -Force } catch {}
   $global:sbProc=$null; $global:olcProc=$null
@@ -197,25 +204,36 @@ function Stop-All {
 function Start-HiddenProcess($file,$args,$stdout,$stderr,$envs=@{}) {
   New-Item -ItemType File -Force -Path $stdout | Out-Null
   New-Item -ItemType File -Force -Path $stderr | Out-Null
+  $cmdLine = '"' + $file + '" ' + (Join-Args $args) + ' 1>>"' + $stdout + '" 2>>"' + $stderr + '"'
   $psi = New-Object Diagnostics.ProcessStartInfo
-  $psi.FileName = $file
-  $psi.Arguments = Join-Args $args
+  $psi.FileName = "$env:SystemRoot\System32\cmd.exe"
+  $psi.Arguments = '/d /s /c "' + $cmdLine + '"'
   $psi.WorkingDirectory = $root
   $psi.UseShellExecute = $false
   $psi.CreateNoWindow = $true
-  $psi.RedirectStandardOutput = $true
-  $psi.RedirectStandardError = $true
+  $psi.RedirectStandardOutput = $false
+  $psi.RedirectStandardError = $false
   $psi.EnvironmentVariables['ENABLE_DEPRECATED_LEGACY_DNS_SERVERS'] = 'true'
   $psi.EnvironmentVariables['ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER'] = 'true'
   foreach($k in $envs.Keys){ $psi.EnvironmentVariables[$k] = $envs[$k] }
   $p = New-Object Diagnostics.Process
   $p.StartInfo = $psi
-  Register-ObjectEvent $p OutputDataReceived DataReceived -Action { if($EventArgs.Data){ Add-Content -Path $Event.MessageData -Value $EventArgs.Data } } -MessageData $stdout | Out-Null
-  Register-ObjectEvent $p ErrorDataReceived DataReceived -Action { if($EventArgs.Data){ Add-Content -Path $Event.MessageData -Value $EventArgs.Data } } -MessageData $stderr | Out-Null
   [void]$p.Start()
-  $p.BeginOutputReadLine()
-  $p.BeginErrorReadLine()
+  Add-Log ('CMD: ' + $cmdLine)
   return $p
+}
+
+function Wait-Socks($cc, [int]$seconds) {
+  for($i=1; $i -le $seconds; $i++) {
+    if($global:olcProc -and $global:olcProc.HasExited) {
+      Add-Log "olcRTC exited early, cmd exit code=$($global:olcProc.ExitCode)"
+      return $null
+    }
+    $ip = Test-Socks $cc
+    if($ip) { return $ip }
+    Start-Sleep -Seconds 1
+  }
+  return $null
 }
 
 $saveBtn.Add_Click({ Save-Conf (Cur-Conf); Add-Log "Saved config: $confPath" })
@@ -232,13 +250,12 @@ $connectBtn.Add_Click({
   try {
     Resolve-WBHosts
     $dataDir = Join-Path $root 'data'; New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
-    $olcArgs = @('-mode','cnc','-carrier','wbstream','-transport','datachannel','-id',$cc.room_id,'-key',$cc.key,'-link','direct','-dns',$cc.dns,'-data',$dataDir,'-socks-host',$cc.socks_host,'-socks-port',[string]$cc.socks_port)
+    $olcArgs = @('-mode','cnc','-carrier','wbstream','-transport','datachannel','-id',$cc.room_id,'-key',$cc.key,'-link','direct','-dns',$cc.dns,'-data',$dataDir,'-socks-host',$cc.socks_host,'-socks-port',[string]$cc.socks_port,'-debug')
     Add-Log 'Starting olcRTC...'
     $global:olcProc = Start-HiddenProcess $olc $olcArgs $olcLog $olcErr
-    Add-Log "olcRTC PID: $($global:olcProc.Id)"
-    Start-Sleep -Seconds 8
-    $ip = Test-Socks $cc
-    if($ip){ Add-Log "SOCKS OK: $ip" } else { Add-Log 'SOCKS not ready yet; starting TUN anyway' }
+    Add-Log "olcRTC wrapper PID: $($global:olcProc.Id)"
+    $ip = Wait-Socks $cc 30
+    if($ip){ Add-Log "SOCKS OK: $ip" } else { Add-Log 'SOCKS not ready after 30s; starting TUN anyway. Check olcrtc.log / olcrtc.err.log.' }
     $sbConf = Write-SingBoxConfig $cc
     Add-Log 'Starting sing-box TUN...'
     $global:sbProc = Start-HiddenProcess $sb @('run','-c',$sbConf) $sbOut $sbLog
