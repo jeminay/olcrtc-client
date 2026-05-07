@@ -3,6 +3,7 @@ package server
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -53,6 +54,12 @@ type ConnectRequest struct {
 	Addr string `json:"addr"`
 	Port int    `json:"port"`
 }
+
+// Stream protocol framing for UDP relay streams.
+const (
+	udpFrameHeaderSize = 2
+	maxUDPPayload      = 65535
+)
 
 // Run starts the server with the specified parameters.
 func Run(
@@ -358,13 +365,18 @@ func parseConnectRequest(buf []byte) (ConnectRequest, bool) {
 	if err := json.Unmarshal(buf, &req); err != nil {
 		return req, false
 	}
-	if req.Cmd != "connect" {
+	if req.Cmd != "connect" && req.Cmd != "udp" {
 		return req, false
 	}
 	return req, true
 }
 
 func (s *Server) dispatch(stream *smux.Stream, req ConnectRequest) {
+	if req.Cmd == "udp" {
+		s.handleUDPStream(stream, req)
+		return
+	}
+
 	addr := net.JoinHostPort(req.Addr, strconv.Itoa(req.Port))
 	logger.Infof("sid=%d connect %s", stream.ID(), addr)
 
@@ -389,6 +401,108 @@ func (s *Server) dispatch(stream *smux.Stream, req ConnectRequest) {
 		_ = stream.Close()
 	}()
 	_, _ = io.Copy(conn, stream)
+}
+
+func (s *Server) handleUDPStream(stream *smux.Stream, req ConnectRequest) {
+	addr := net.JoinHostPort(req.Addr, strconv.Itoa(req.Port))
+	logger.Infof("sid=%d udp %s", stream.ID(), addr)
+
+	udpAddr, err := s.resolveUDP(req)
+	if err != nil {
+		logger.Infof("sid=%d udp resolve %s failed: %v", stream.ID(), addr, err)
+		return
+	}
+
+	conn, err := net.DialUDP("udp4", nil, udpAddr)
+	if err != nil {
+		logger.Infof("sid=%d udp dial %s failed: %v", stream.ID(), addr, err)
+		return
+	}
+	defer func() { _ = conn.Close() }()
+
+	if _, err := stream.Write([]byte{0x00}); err != nil {
+		return
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buf := make([]byte, maxUDPPayload)
+		for {
+			_ = conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
+			n, err := conn.Read(buf)
+			if err != nil {
+				return
+			}
+			if err := writeUDPFrame(stream, buf[:n]); err != nil {
+				return
+			}
+		}
+	}()
+
+	for {
+		payload, err := readUDPFrame(stream)
+		if err != nil {
+			return
+		}
+		if len(payload) == 0 {
+			continue
+		}
+		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		if _, err := conn.Write(payload); err != nil {
+			return
+		}
+		select {
+		case <-done:
+			return
+		default:
+		}
+	}
+}
+
+func (s *Server) resolveUDP(req ConnectRequest) (*net.UDPAddr, error) {
+	port := strconv.Itoa(req.Port)
+	if ip := net.ParseIP(req.Addr); ip != nil {
+		ip4 := ip.To4()
+		if ip4 == nil {
+			return nil, fmt.Errorf("udp ipv6 is not supported yet: %s", req.Addr)
+		}
+		return &net.UDPAddr{IP: ip4, Port: req.Port}, nil
+	}
+	ips, err := s.resolver.LookupIP(context.Background(), "ip4", req.Addr)
+	if err != nil || len(ips) == 0 {
+		return nil, fmt.Errorf("lookup %s:%s: %w", req.Addr, port, err)
+	}
+	return &net.UDPAddr{IP: ips[0], Port: req.Port}, nil
+}
+
+func writeUDPFrame(w io.Writer, payload []byte) error {
+	if len(payload) > maxUDPPayload {
+		return fmt.Errorf("udp frame too large: %d", len(payload))
+	}
+	header := make([]byte, udpFrameHeaderSize)
+	binary.BigEndian.PutUint16(header, uint16(len(payload)))
+	if _, err := w.Write(header); err != nil {
+		return err
+	}
+	_, err := w.Write(payload)
+	return err
+}
+
+func readUDPFrame(r io.Reader) ([]byte, error) {
+	header := make([]byte, udpFrameHeaderSize)
+	if _, err := io.ReadFull(r, header); err != nil {
+		return nil, err
+	}
+	n := int(binary.BigEndian.Uint16(header))
+	if n < 0 || n > maxUDPPayload {
+		return nil, fmt.Errorf("invalid udp frame size: %d", n)
+	}
+	payload := make([]byte, n)
+	if _, err := io.ReadFull(r, payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
 }
 
 func (s *Server) dial(req ConnectRequest) (net.Conn, error) {
