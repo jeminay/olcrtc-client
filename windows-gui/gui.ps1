@@ -201,22 +201,33 @@ function Stop-All {
   Add-Log 'Disconnected'
 }
 
-function Start-HiddenProcess($file,$args,$stdout,$stderr,$envs=@{}) {
+function Start-HiddenProcess($file,$argList,$stdout,$stderr,$envs=@{}) {
   New-Item -ItemType File -Force -Path $stdout | Out-Null
   New-Item -ItemType File -Force -Path $stderr | Out-Null
-  $oldLegacyDns = [Environment]::GetEnvironmentVariable('ENABLE_DEPRECATED_LEGACY_DNS_SERVERS', 'Process')
-  $oldMissingResolver = [Environment]::GetEnvironmentVariable('ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER', 'Process')
-  [Environment]::SetEnvironmentVariable('ENABLE_DEPRECATED_LEGACY_DNS_SERVERS', 'true', 'Process')
-  [Environment]::SetEnvironmentVariable('ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER', 'true', 'Process')
-  foreach($k in $envs.Keys){ [Environment]::SetEnvironmentVariable($k, $envs[$k], 'Process') }
-  try {
-    $p = Start-Process -FilePath $file -ArgumentList $args -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-    Add-Log ('RUN: ' + $file + ' ' + (Join-Args $args))
-    return $p
-  } finally {
-    [Environment]::SetEnvironmentVariable('ENABLE_DEPRECATED_LEGACY_DNS_SERVERS', $oldLegacyDns, 'Process')
-    [Environment]::SetEnvironmentVariable('ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER', $oldMissingResolver, 'Process')
-  }
+  $cleanArgs = @($argList | Where-Object { $null -ne $_ -and ([string]$_).Length -gt 0 } | ForEach-Object { [string]$_ })
+  $argString = Join-Args $cleanArgs
+  $psi = New-Object Diagnostics.ProcessStartInfo
+  $psi.FileName = $file
+  $psi.Arguments = $argString
+  $psi.WorkingDirectory = $root
+  $psi.UseShellExecute = $false
+  $psi.CreateNoWindow = $true
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.EnvironmentVariables['ENABLE_DEPRECATED_LEGACY_DNS_SERVERS'] = 'true'
+  $psi.EnvironmentVariables['ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER'] = 'true'
+  foreach($k in $envs.Keys){ $psi.EnvironmentVariables[$k] = $envs[$k] }
+  $p = New-Object Diagnostics.Process
+  $p.StartInfo = $psi
+  $outWriter = [IO.StreamWriter]::new($stdout, $true, [Text.UTF8Encoding]::new($false))
+  $errWriter = [IO.StreamWriter]::new($stderr, $true, [Text.UTF8Encoding]::new($false))
+  Register-ObjectEvent $p OutputDataReceived DataReceived -Action { if($EventArgs.Data){ $Event.MessageData.WriteLine($EventArgs.Data); $Event.MessageData.Flush() } } -MessageData $outWriter | Out-Null
+  Register-ObjectEvent $p ErrorDataReceived DataReceived -Action { if($EventArgs.Data){ $Event.MessageData.WriteLine($EventArgs.Data); $Event.MessageData.Flush() } } -MessageData $errWriter | Out-Null
+  [void]$p.Start()
+  $p.BeginOutputReadLine()
+  $p.BeginErrorReadLine()
+  Add-Log ('RUN: ' + $file + ' ' + $argString)
+  return $p
 }
 
 function Wait-Socks($cc, [int]$seconds) {
