@@ -28,16 +28,14 @@
 
 ## Готовый релиз
 
-Windows GUI v0.1.0:
-
-- Release: https://github.com/jeminay/olcrtc-client/releases/tag/v0.1.0
-- Download: https://github.com/jeminay/olcrtc-client/releases/download/v0.1.0/olcrtc-client-gui-v0.1.0-windows-amd64.zip
+Windows GUI Latest: 
+- https://github.com/jeminay/olcrtc-client/releases/latest
 
 ## Быстрый старт - Windows GUI
 
-1. Скачать `olcrtc-client-gui-v0.1.0-windows-amd64.zip` из релиза.
+1. Скачать `olcrtc-client-gui-*-windows-amd64.zip` из релиза.
 2. Распаковать в отдельную папку, например `C:\olcrtc-client`.
-3. Запустить `olcrtc-client-gui-v0.1.0-windows-amd64.exe`.
+3. Запустить `olcrtc-client-gui-*-windows-amd64.exe`.
 4. Вставить:
    - `ROOM_ID` из лога сервера
    - `KEY` - 32-byte hex key
@@ -45,7 +43,7 @@ Windows GUI v0.1.0:
 6. В статусе должно быть `connected`.
 7. `Test IP` должен показать IP VPS.
 
-GUI работает в portable-режиме: `olcrtc.exe`, `sing-box.exe`, конфиг, логи и `data/` лежат рядом с GUI `.exe`, а не в AppData.
+GUI работает в portable-режиме: `olcrtc.exe`, `sing-box.exe`, конфиг, логи и `data/` лежат рядом с GUI `.exe`.
 
 ## Сервер (VPS, Linux amd64)
 
