@@ -1,4 +1,4 @@
-# olcrtc-easy
+# olcrtc-client
 
 **Один клик - и весь трафик Windows/macOS идёт через WebRTC-туннель.**
 
@@ -30,14 +30,14 @@
 
 Windows GUI v0.1.0:
 
-- Release: https://github.com/jeminay/olcrtc-easy/releases/tag/v0.1.0
-- Download: https://github.com/jeminay/olcrtc-easy/releases/download/v0.1.0/olcrtc-easy-gui-v0.1.0-windows-amd64.zip
+- Release: https://github.com/jeminay/olcrtc-client/releases/tag/v0.1.0
+- Download: https://github.com/jeminay/olcrtc-client/releases/download/v0.1.0/olcrtc-client-gui-v0.1.0-windows-amd64.zip
 
 ## Быстрый старт - Windows GUI
 
-1. Скачать `olcrtc-easy-gui-v0.1.0-windows-amd64.zip` из релиза.
-2. Распаковать в отдельную папку, например `C:\olcrtc-easy`.
-3. Запустить `olcrtc-easy-gui-v0.1.0-windows-amd64.exe`.
+1. Скачать `olcrtc-client-gui-v0.1.0-windows-amd64.zip` из релиза.
+2. Распаковать в отдельную папку, например `C:\olcrtc-client`.
+3. Запустить `olcrtc-client-gui-v0.1.0-windows-amd64.exe`.
 4. Вставить:
    - `ROOM_ID` из лога сервера
    - `KEY` - 32-byte hex key
@@ -107,8 +107,8 @@ macOS-пакет собирается и валидируется, но end-to-e
 Результат:
 
 ```text
-release/olcrtc-easy-gui-v0.1.0-windows-amd64.exe
-release/olcrtc-easy-gui-v0.1.0-windows-amd64.zip
+release/olcrtc-client-gui-v0.1.0-windows-amd64.exe
+release/olcrtc-client-gui-v0.1.0-windows-amd64.zip
 ```
 
 GUI single-exe включает embedded assets:

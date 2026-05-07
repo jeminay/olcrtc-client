@@ -20,8 +20,8 @@
 Результат:
 
 ```text
-release/olcrtc-easy-v0.16-macos-arm64.zip
-release/olcrtc-easy-v0.16-macos-amd64.zip
+release/olcrtc-client-v0.16-macos-arm64.zip
+release/olcrtc-client-v0.16-macos-amd64.zip
 ```
 
 Скрипт собирает:

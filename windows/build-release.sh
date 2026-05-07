@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build olcrtc-easy Windows release package
+# Build olcrtc-client Windows release package
 # Usage: ./windows/build-release.sh [version]
 # Example: ./windows/build-release.sh v0.16
 
@@ -10,11 +10,11 @@ VERSION="${1:-dev}"
 BUILDDIR="build"
 PACKDIR="windows"
 OUTDIR="release"
-NAME="olcrtc-easy-${VERSION}-windows-amd64"
+NAME="olcrtc-client-${VERSION}-windows-amd64"
 SINGBOX_VERSION="1.13.11"
 SINGBOX_URL="https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VERSION}/sing-box-${SINGBOX_VERSION}-windows-amd64.zip"
 
-echo "=== olcrtc-easy Windows release builder ==="
+echo "=== olcrtc-client Windows release builder ==="
 
 # Prefer the local Go 1.25 toolchain when available.
 if [ -f "/tmp/go125/go/bin/go" ]; then
@@ -95,4 +95,4 @@ echo "=== Done ==="
 echo
 echo "Upload to GitHub:"
 echo "  gh release create ${VERSION} ${ZIP} --title '${VERSION}' --notes 'Release ${VERSION}'"
-echo "  Or use GitHub web UI: https://github.com/jeminay/olcrtc-easy/releases/new"
+echo "  Or use GitHub web UI: https://github.com/jeminay/olcrtc-client/releases/new"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build olcRTC Easy Windows GUI MVP
+# Build olcRTC Client Windows GUI MVP
 # Usage: ./windows-gui/build-release.sh [version]
 
 set -euo pipefail
@@ -10,11 +10,11 @@ BUILDDIR="build"
 GUIDIR="windows-gui"
 ASSETDIR="${GUIDIR}/assets"
 OUTDIR="release"
-NAME="olcrtc-easy-gui-${VERSION}-windows-amd64"
+NAME="olcrtc-client-gui-${VERSION}-windows-amd64"
 SINGBOX_VERSION="1.13.11"
 SINGBOX_URL="https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VERSION}/sing-box-${SINGBOX_VERSION}-windows-amd64.zip"
 
-echo "=== olcRTC Easy Windows GUI builder ==="
+echo "=== olcRTC Client Windows GUI builder ==="
 
 if [ -f "/tmp/go125/go/bin/go" ]; then
   export GOROOT=/tmp/go125/go

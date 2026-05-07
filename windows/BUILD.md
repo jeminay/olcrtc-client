@@ -25,7 +25,7 @@ GOTOOLCHAIN=local GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w' 
 ./windows/build-release.sh v0.16
 ```
 
-Результат: `release/olcrtc-easy-v0.16-windows-amd64.zip`
+Результат: `release/olcrtc-client-v0.16-windows-amd64.zip`
 
 ### sing-box
 
@@ -35,11 +35,11 @@ GOTOOLCHAIN=local GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w' 
 
 ```bash
 # Через gh CLI
-gh release create v0.16 release/olcrtc-easy-v0.16-windows-amd64.zip \
+gh release create v0.16 release/olcrtc-client-v0.16-windows-amd64.zip \
   --title "v0.16" \
   --notes "Описание изменений"
 
-# Или через веб: https://github.com/jeminay/olcrtc-easy/releases/new
+# Или через веб: https://github.com/jeminay/olcrtc-client/releases/new
 ```
 
 ## Содержимое windows/

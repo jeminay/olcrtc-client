@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build olcrtc-easy macOS release package
+# Build olcrtc-client macOS release package
 # Usage: ./macos/build-release.sh [version] [arm64|amd64]
 # Example: ./macos/build-release.sh v0.16 arm64
 
@@ -17,12 +17,12 @@ BUILDDIR="build"
 PACKDIR="macos"
 OUTDIR="release"
 STAGE="${OUTDIR}/stage-macos-${ARCH}"
-NAME="olcrtc-easy-${VERSION}-macos-${ARCH}"
+NAME="olcrtc-client-${VERSION}-macos-${ARCH}"
 SINGBOX_VERSION="1.13.11"
 SINGBOX_PLATFORM="darwin-${ARCH}"
 SINGBOX_URL="https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VERSION}/sing-box-${SINGBOX_VERSION}-${SINGBOX_PLATFORM}.tar.gz"
 
-echo "=== olcrtc-easy macOS release builder ==="
+echo "=== olcrtc-client macOS release builder ==="
 
 # Prefer the local Go 1.25 toolchain when available.
 if [ -f "/tmp/go125/go/bin/go" ]; then
