@@ -204,23 +204,19 @@ function Stop-All {
 function Start-HiddenProcess($file,$args,$stdout,$stderr,$envs=@{}) {
   New-Item -ItemType File -Force -Path $stdout | Out-Null
   New-Item -ItemType File -Force -Path $stderr | Out-Null
-  $cmdLine = '"' + $file + '" ' + (Join-Args $args) + ' 1>>"' + $stdout + '" 2>>"' + $stderr + '"'
-  $psi = New-Object Diagnostics.ProcessStartInfo
-  $psi.FileName = "$env:SystemRoot\System32\cmd.exe"
-  $psi.Arguments = '/d /s /c "' + $cmdLine + '"'
-  $psi.WorkingDirectory = $root
-  $psi.UseShellExecute = $false
-  $psi.CreateNoWindow = $true
-  $psi.RedirectStandardOutput = $false
-  $psi.RedirectStandardError = $false
-  $psi.EnvironmentVariables['ENABLE_DEPRECATED_LEGACY_DNS_SERVERS'] = 'true'
-  $psi.EnvironmentVariables['ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER'] = 'true'
-  foreach($k in $envs.Keys){ $psi.EnvironmentVariables[$k] = $envs[$k] }
-  $p = New-Object Diagnostics.Process
-  $p.StartInfo = $psi
-  [void]$p.Start()
-  Add-Log ('CMD: ' + $cmdLine)
-  return $p
+  $oldLegacyDns = [Environment]::GetEnvironmentVariable('ENABLE_DEPRECATED_LEGACY_DNS_SERVERS', 'Process')
+  $oldMissingResolver = [Environment]::GetEnvironmentVariable('ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER', 'Process')
+  [Environment]::SetEnvironmentVariable('ENABLE_DEPRECATED_LEGACY_DNS_SERVERS', 'true', 'Process')
+  [Environment]::SetEnvironmentVariable('ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER', 'true', 'Process')
+  foreach($k in $envs.Keys){ [Environment]::SetEnvironmentVariable($k, $envs[$k], 'Process') }
+  try {
+    $p = Start-Process -FilePath $file -ArgumentList $args -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    Add-Log ('RUN: ' + $file + ' ' + (Join-Args $args))
+    return $p
+  } finally {
+    [Environment]::SetEnvironmentVariable('ENABLE_DEPRECATED_LEGACY_DNS_SERVERS', $oldLegacyDns, 'Process')
+    [Environment]::SetEnvironmentVariable('ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER', $oldMissingResolver, 'Process')
+  }
 }
 
 function Wait-Socks($cc, [int]$seconds) {
