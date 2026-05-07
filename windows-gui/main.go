@@ -61,15 +61,11 @@ func main() {
 }
 
 func runtimeDir() (string, error) {
-    base := os.Getenv("LOCALAPPDATA")
-    if base == "" {
-        exe, err := os.Executable()
-        if err != nil {
-            return "", err
-        }
-        base = filepath.Dir(exe)
+    exe, err := os.Executable()
+    if err != nil {
+        return "", err
     }
-    return filepath.Join(base, "olcrtc-easy", "windows-gui"), nil
+    return filepath.Dir(exe), nil
 }
 
 func showError(step string, err error) {

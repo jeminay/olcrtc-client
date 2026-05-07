@@ -6,7 +6,7 @@ Single-exe MVP for Windows. The executable embeds:
 - `sing-box.exe`
 - PowerShell WinForms GUI
 
-At launch it extracts runtime files to `%LOCALAPPDATA%\\olcrtc-easy\\windows-gui`, asks for UAC on connect, then starts `olcrtc` and `sing-box` hidden.
+At launch it works in fully portable mode: runtime files, config, logs and `data/` are written next to the GUI `.exe`. It asks for UAC, then starts `olcrtc` and `sing-box` hidden.
 
 ## Build
 
