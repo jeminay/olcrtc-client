@@ -1,8 +1,8 @@
 # olcrtc-easy
 
-**Один клик — и весь трафик Windows идёт через прокси-туннель.**
+**Один клик — и весь трафик Windows/macOS идёт через прокси-туннель.**
 
-Форк [olcRTC](https://github.com/openlibrecommunity/olcrtc) — обёртка для Windows, которая поднимает SOCKS5 прокси через WebRTC DataChannel, заворачивает в него весь трафик системы через TUN, и показывает живые метрики в консоли.
+Форк [olcRTC](https://github.com/openlibrecommunity/olcrtc) — обёртка для Windows и macOS, которая поднимает SOCKS5 прокси через WebRTC DataChannel, заворачивает в него весь трафик системы через TUN, и показывает живые метрики в консоли.
 
 ## Как это работает
 
@@ -31,11 +31,13 @@
 
 Оригинальный olcRTC — это консольная утилита без упаковки. Этот форк добавляет:
 
-- **Всё в одном zip** — `olcrtc.exe`, `sing-box.exe`, конфиги, скрипты. Распаковал и запустил — не нужен Python, Go, ffmpeg.
-- **PowerShell дашборд** — живые метрики в консоли: скорость rx/tx, счётчики запросов (успешных/ошибок), статус процессов, health check каждые 30 сек, uptime.
-- **Один клик старт** (`start-all.bat`) — запрашивает admin, резолвит WB-домены, стартует olcrtc + sing-box, показывает дашборд. Одно окно.
-- **Один клик стоп** (`stop-all.bat`) — убивает оба процесса.
-- **Автогенерация конфига** — `generate-singbox-config.ps1` читает `olcrtc.conf` и генерирует `sing-box-config.json`. Без хардкода IP.
+- **Всё в одном zip** — `olcrtc`, `sing-box`, конфиги, скрипты. Распаковал и запустил — не нужен Python, Go, ffmpeg.
+- **Windows-обвязка отдельно** — всё Windows-специфичное лежит в `windows/`.
+- **macOS-обвязка отдельно** — portable-пакет и скрипты лежат в `macos/`.
+- **Живой дашборд** — скорость rx/tx, счётчики запросов, статус процессов, health check каждые 30 сек, uptime.
+- **Один клик старт** (`start-all.bat` на Windows, `start-all.command` на macOS) — запрашивает admin/sudo, резолвит WB-домены, стартует olcrtc + sing-box, показывает дашборд.
+- **Один клик стоп** (`stop-all.bat` / `stop-all.sh`) — убивает оба процесса.
+- **Автогенерация конфига** — `generate-singbox-config.ps1` / `generate-singbox-config.sh` читает `olcrtc.conf` и генерирует `sing-box-config.json`. Без хардкода IP.
 - **Автоматический hosts** — скрипт резолвит WB-домены через провайдерский DNS и пишет в hosts перед стартом.
 - **Метрики сервера** — каждые 5 сек логирует rx/tx скорость, WB state, queue size.
 - **Чистые логи** — убраны шумные MUXDEBUG/WBDEBUG на каждый фрейм.
@@ -61,10 +63,30 @@ To connect client use: -id <ROOM_ID>
 
 ### 2. Клиент (Windows)
 
-1. Скачать zip из [релизов](https://github.com/jeminay/olcrtc-easy/releases), распаковать
+1. Скачать `olcrtc-easy-*-windows-amd64.zip` из [релизов](https://github.com/jeminay/olcrtc-easy/releases), распаковать
 2. Открыть `olcrtc.conf`, вставить `ROOM_ID` и `KEY`
 3. Запустить `start-all.bat` (запросит admin для TUN)
 4. Готово — весь трафик идёт через VPS
+
+### 3. Клиент (macOS)
+
+1. Скачать `olcrtc-easy-*-macos-arm64.zip` или `olcrtc-easy-*-macos-amd64.zip`, распаковать
+2. Открыть `olcrtc.conf`, вставить `ROOM_ID` и `KEY`
+3. Запустить `start-all.command` (запросит sudo для TUN)
+4. Готово — весь трафик идёт через VPS
+
+## Сборка portable-пакетов
+
+```bash
+# Windows
+./windows/build-release.sh v0.16
+
+# macOS Apple Silicon
+./macos/build-release.sh v0.16 arm64
+
+# macOS Intel
+./macos/build-release.sh v0.16 amd64
+```
 
 ### Минимальный конфиг `olcrtc.conf`:
 

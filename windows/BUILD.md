@@ -4,7 +4,8 @@
 
 - Go 1.25+ (с `GOTOOLCHAIN=local` если не системный)
 - zip
-- sing-box.exe (скачать отдельно)
+- curl
+- python3
 
 ## Сборка бинарников
 
@@ -21,22 +22,14 @@ GOTOOLCHAIN=local GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w' 
 Скрипт собирает бинарники и пакует zip:
 
 ```bash
-./pack/build-release.sh v0.16
+./windows/build-release.sh v0.16
 ```
 
 Результат: `release/olcrtc-easy-v0.16-windows-amd64.zip`
 
 ### sing-box
 
-sing-box не входит в репозиторий (лицензия). Скачай вручную:
-
-1. https://github.com/SagerNet/sing-box/releases — скачать `sing-box-<version>-windows-amd64.zip`
-2. Распаковать `sing-box.exe` рядом
-3. Добавить в релиз:
-
-```bash
-zip -u release/olcrtc-easy-v0.16-windows-amd64.zip sing-box.exe
-```
+`sing-box.exe` не хранится в репозитории. `build-release.sh` скачивает `sing-box` v1.13.11 автоматически и кладёт его в zip.
 
 ## Публикация на GitHub
 
@@ -49,7 +42,7 @@ gh release create v0.16 release/olcrtc-easy-v0.16-windows-amd64.zip \
 # Или через веб: https://github.com/jeminay/olcrtc-easy/releases/new
 ```
 
-## Содержимое pack/
+## Содержимое windows/
 
 | Файл | Описание |
 |------|----------|
