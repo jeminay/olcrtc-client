@@ -4,7 +4,7 @@
 
 Форк [olcRTC](https://github.com/openlibrecommunity/olcrtc) с portable-обвязками для Windows и macOS. Поднимает SOCKS5-прокси через WebRTC DataChannel, заворачивает системный трафик через `sing-box` TUN и показывает статус/логи.
 
-Сейчас основной готовый пользовательский клиент - **Windows GUI MVP**.
+Сейчас основной готовый пользовательский клиент - **Windows GUI** с поддержкой TCP и UDP.
 
 ## Как это работает
 
@@ -28,8 +28,10 @@
 
 ## Готовый релиз
 
-Windows GUI Latest: 
+Windows GUI Latest:
 - https://github.com/jeminay/olcrtc-client/releases/latest
+
+UDP поддерживается через SOCKS5 UDP ASSOCIATE и проверен в играх.
 
 ## Быстрый старт - Windows GUI
 
@@ -105,8 +107,8 @@ macOS-пакет собирается и валидируется, но end-to-e
 Результат:
 
 ```text
-release/olcrtc-client-gui-v0.1.0-windows-amd64.exe
-release/olcrtc-client-gui-v0.1.0-windows-amd64.zip
+release/olcrtc-client-gui-v0.2.0-windows-amd64.exe
+release/olcrtc-client-gui-v0.2.0-windows-amd64.zip
 ```
 
 GUI single-exe включает embedded assets:
