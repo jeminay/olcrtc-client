@@ -25,6 +25,7 @@ $sb = Join-Path $root 'sing-box.exe'
 $olcLog = Join-Path $root 'olcrtc.log'
 $olcErr = Join-Path $root 'olcrtc.err.log'
 $sbOut = Join-Path $root 'sing-box.out.log'
+$sbErr = Join-Path $root 'sing-box.err.log'
 $sbLog = Join-Path $root 'sing-box.log'
 $runtimeLog = Join-Path $root 'gui.log'
 
@@ -82,7 +83,7 @@ function Write-SingBoxConfig($cc) {
     }
     inbounds = @([ordered]@{
       type='tun'; tag='tun-in'; interface_name='singbox-tun'; address=@('172.19.0.1/30')
-      auto_route=$true; strict_route=$true; stack='mixed'; sniff=$true
+      auto_route=$true; strict_route=$true; stack='mixed'
     })
     outbounds = @(
       [ordered]@{ type='socks'; tag='proxy'; server=$cc.socks_host; server_port=[int]$cc.socks_port; version='5' },
@@ -252,7 +253,7 @@ $connectBtn.Add_Click({
   Stop-All
   $connectBtn.Enabled=$false; $disconnectBtn.Enabled=$true
   Set-Status 'connecting...' ([Drawing.Color]::DarkOrange)
-  Remove-Item $olcLog,$olcErr,$sbOut,$sbLog -ErrorAction SilentlyContinue
+  Remove-Item $olcLog,$olcErr,$sbOut,$sbErr,$sbLog -ErrorAction SilentlyContinue
   $global:offsets = @{}
   try {
     Resolve-WBHosts
@@ -265,7 +266,7 @@ $connectBtn.Add_Click({
     if($ip){ Add-Log "SOCKS OK: $ip" } else { Add-Log 'SOCKS not ready after 30s; starting TUN anyway. Check olcrtc.log / olcrtc.err.log.' }
     $sbConf = Write-SingBoxConfig $cc
     Add-Log 'Starting sing-box TUN...'
-    $global:sbProc = Start-HiddenProcess $sb @('run','-c',$sbConf) $sbOut $sbLog
+    $global:sbProc = Start-HiddenProcess $sb @('run','-c',$sbConf) $sbOut $sbErr
     Add-Log "sing-box PID: $($global:sbProc.Id)"
     Start-Sleep -Seconds 2
     Set-Status 'connected' ([Drawing.Color]::DarkGreen)
@@ -302,10 +303,16 @@ $timer.Add_Tick({
   Append-NewFile $olcLog '[olcrtc] '
   Append-NewFile $olcErr '[olcrtc] '
   Append-NewFile $sbOut '[sing-box] '
-  Append-NewFile $sbLog '[sing-box] '
+  Append-NewFile $sbErr '[sing-box-err] '
+  Append-NewFile $sbLog '[sing-box-core] '
   if($global:olcProc -and $global:sbProc) {
-    if($global:olcProc.HasExited -or $global:sbProc.HasExited) { Set-Status 'process exited - check logs' ([Drawing.Color]::DarkRed) }
-    else { Set-Status 'connected' ([Drawing.Color]::DarkGreen) }
+    if($global:olcProc.HasExited) {
+      Set-Status "olcRTC exited code=$($global:olcProc.ExitCode)" ([Drawing.Color]::DarkRed)
+    } elseif($global:sbProc.HasExited) {
+      Set-Status "sing-box exited code=$($global:sbProc.ExitCode)" ([Drawing.Color]::DarkRed)
+    } else {
+      Set-Status 'connected' ([Drawing.Color]::DarkGreen)
+    }
   }
 })
 $timer.Start()
