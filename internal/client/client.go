@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/openlibrecommunity/olcrtc/internal/crypto"
@@ -18,6 +19,7 @@ import (
 	"github.com/openlibrecommunity/olcrtc/internal/logger"
 	"github.com/openlibrecommunity/olcrtc/internal/muxconn"
 	"github.com/openlibrecommunity/olcrtc/internal/names"
+	"github.com/openlibrecommunity/olcrtc/internal/udpwire"
 	"github.com/xtaci/smux"
 )
 
@@ -46,6 +48,8 @@ type Client struct {
 	session   *smux.Session
 	sessMu    sync.RWMutex
 	dnsServer string
+	udpFlows  sync.Map // flowID uint32 -> *udpFlow
+	udpFlowID atomic.Uint32
 }
 
 type socks5Req struct {
@@ -181,6 +185,7 @@ func (c *Client) bringUpLink(
 		RoomURL:         roomURL,
 		Name:            names.Generate(),
 		OnData:          c.onData,
+		OnDatagram:      c.onDatagram,
 		DNSServer:       dnsServer,
 		ProxyAddr:       socksProxyAddr,
 		ProxyPort:       socksProxyPort,
@@ -300,6 +305,36 @@ func (c *Client) onData(data []byte) {
 	}
 }
 
+func (c *Client) onDatagram(data []byte) {
+	pt, err := c.cipher.Decrypt(data)
+	if err != nil {
+		return
+	}
+	packet, err := udpwire.DecodeServer(pt)
+	if err != nil {
+		logger.Warnf("udp lossy decode failed: %v", err)
+		return
+	}
+	val, ok := c.udpFlows.Load(packet.FlowID)
+	if !ok {
+		return
+	}
+	flow := val.(*udpFlow)
+	if flow.udpConn == nil || flow.clientAddr == nil {
+		return
+	}
+	resp := buildSocksUDP(flow.targetAddr, flow.targetPort, packet.Payload)
+	_, _ = flow.udpConn.WriteToUDP(resp, flow.clientAddr)
+}
+
+func (c *Client) datagramLink() (link.DatagramLink, bool) {
+	dl, ok := c.ln.(link.DatagramLink)
+	if !ok || !dl.CanSendDatagram() {
+		return nil, false
+	}
+	return dl, true
+}
+
 func (c *Client) acceptLoop(ctx context.Context, ln net.Listener) {
 	for {
 		conn, err := ln.Accept()
@@ -372,6 +407,12 @@ func (c *Client) handleUDPAssociate(tcpConn net.Conn) {
 	}()
 
 	flows := sync.Map{}
+	defer flows.Range(func(_, val any) bool {
+		if flow, ok := val.(*udpFlow); ok {
+			flow.close()
+		}
+		return true
+	})
 	buf := make([]byte, maxUDPPayload+512)
 	for {
 		_ = udpConn.SetReadDeadline(time.Now().Add(1 * time.Second))
@@ -415,11 +456,38 @@ type socksUDPPacket struct {
 }
 
 type udpFlow struct {
-	stream *smux.Stream
-	mu     sync.Mutex
+	client     *Client
+	stream     *smux.Stream
+	mu         sync.Mutex
+	datagram   bool
+	flowID     uint32
+	udpConn    *net.UDPConn
+	clientAddr *net.UDPAddr
+	targetAddr string
+	targetPort int
 }
 
 func (c *Client) newUDPFlow(udpConn *net.UDPConn, clientAddr *net.UDPAddr, targetAddr string, targetPort int) *udpFlow {
+	if _, ok := c.datagramLink(); ok {
+		flowID := c.udpFlowID.Add(1)
+		if flowID == 0 {
+			flowID = c.udpFlowID.Add(1)
+		}
+		flow := &udpFlow{
+			client:     c,
+			datagram:   true,
+			flowID:     flowID,
+			udpConn:    udpConn,
+			clientAddr: clientAddr,
+			targetAddr: targetAddr,
+			targetPort: targetPort,
+		}
+		c.udpFlows.Store(flowID, flow)
+		logger.Infof("udp lossy flow=%d %s -> %s:%d", flowID, clientAddr.String(), targetAddr, targetPort)
+		return flow
+	}
+	logger.Infof("udp lossy unavailable, falling back to smux for %s -> %s:%d", clientAddr.String(), targetAddr, targetPort)
+
 	c.sessMu.RLock()
 	sess := c.session
 	c.sessMu.RUnlock()
@@ -432,7 +500,7 @@ func (c *Client) newUDPFlow(udpConn *net.UDPConn, clientAddr *net.UDPAddr, targe
 		logger.Warnf("udp OpenStream failed: %v", err)
 		return &udpFlow{}
 	}
-	flow := &udpFlow{stream: stream}
+	flow := &udpFlow{client: c, stream: stream, targetAddr: targetAddr, targetPort: targetPort}
 	if err := c.sendUDPRequest(stream, targetAddr, targetPort); err != nil {
 		logger.Warnf("udp connect failed: %v", err)
 		_ = stream.Close()
@@ -454,6 +522,9 @@ func (c *Client) newUDPFlow(udpConn *net.UDPConn, clientAddr *net.UDPAddr, targe
 }
 
 func (f *udpFlow) send(payload []byte) error {
+	if f.datagram {
+		return f.sendDatagram(payload)
+	}
 	if f.stream == nil {
 		return ErrRemoteNotReady
 	}
@@ -462,7 +533,34 @@ func (f *udpFlow) send(payload []byte) error {
 	return writeUDPFrame(f.stream, payload)
 }
 
+func (f *udpFlow) sendDatagram(payload []byte) error {
+	if f.client == nil {
+		return ErrRemoteNotReady
+	}
+	dl, ok := f.client.datagramLink()
+	if !ok {
+		return ErrRemoteNotReady
+	}
+	packet, err := udpwire.EncodeClient(udpwire.ClientPacket{
+		FlowID:  f.flowID,
+		Addr:    f.targetAddr,
+		Port:    f.targetPort,
+		Payload: payload,
+	})
+	if err != nil {
+		return err
+	}
+	enc, err := f.client.cipher.Encrypt(packet)
+	if err != nil {
+		return err
+	}
+	return dl.SendDatagram(enc)
+}
+
 func (f *udpFlow) close() {
+	if f.datagram && f.client != nil {
+		f.client.udpFlows.Delete(f.flowID)
+	}
 	if f.stream != nil {
 		_ = f.stream.Close()
 	}

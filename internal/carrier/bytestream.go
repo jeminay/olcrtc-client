@@ -20,6 +20,12 @@ type ByteStream interface {
 	CanSend() bool
 }
 
+// Datagram is a lossy, message-oriented carrier capability.
+type Datagram interface {
+	SendDatagram(data []byte) error
+	CanSendDatagram() bool
+}
+
 // VideoTrack is a carrier capability for bidirectional video transport.
 type VideoTrack interface {
 	Connect(ctx context.Context) error
@@ -46,6 +52,7 @@ type legacySession struct {
 func (s *legacySession) Capabilities() Capabilities {
 	caps := Capabilities{ByteStream: true}
 	_, caps.VideoTrack = s.provider.(videoTrackProvider)
+	_, caps.Datagram = s.provider.(provider.DatagramCapable)
 	return caps
 }
 
@@ -62,6 +69,28 @@ func (s *legacySession) OpenVideoTrack() (VideoTrack, error) {
 	}
 	return &legacyVideoTrack{provider: vtp}, nil
 }
+
+// OpenDatagram adapts a datagram-capable legacy provider.
+func (s *legacySession) OpenDatagram() (Datagram, error) {
+	dp, ok := s.provider.(provider.DatagramCapable)
+	if !ok {
+		return nil, ErrDatagramUnsupported
+	}
+	return &legacyDatagram{provider: dp}, nil
+}
+
+type legacyDatagram struct {
+	provider provider.DatagramCapable
+}
+
+func (d *legacyDatagram) SendDatagram(data []byte) error {
+	if err := d.provider.SendDatagram(data); err != nil {
+		return fmt.Errorf("send datagram: %w", err)
+	}
+	return nil
+}
+
+func (d *legacyDatagram) CanSendDatagram() bool { return d.provider.CanSendDatagram() }
 
 type legacyByteStream struct {
 	provider provider.Provider

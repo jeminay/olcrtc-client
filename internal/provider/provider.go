@@ -35,6 +35,13 @@ type Provider interface {
 	GetBufferedAmount() uint64
 }
 
+// DatagramCapable is implemented by providers that can send lossy,
+// message-oriented datagrams in parallel with the reliable byte stream.
+type DatagramCapable interface {
+	SendDatagram(data []byte) error
+	CanSendDatagram() bool
+}
+
 // VideoTrackCapable is implemented by providers that can exchange video tracks.
 type VideoTrackCapable interface {
 	AddVideoTrack(track webrtc.TrackLocal) error
@@ -43,12 +50,13 @@ type VideoTrackCapable interface {
 
 // Config holds common configuration for all providers.
 type Config struct {
-	RoomURL   string
-	Name      string
-	OnData    func([]byte)
-	DNSServer string
-	ProxyAddr string
-	ProxyPort int
+	RoomURL    string
+	Name       string
+	OnData     func([]byte)
+	OnDatagram func([]byte)
+	DNSServer  string
+	ProxyAddr  string
+	ProxyPort  int
 }
 
 // Factory is a function that creates a new Provider instance.

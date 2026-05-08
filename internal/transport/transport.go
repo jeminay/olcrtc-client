@@ -9,6 +9,8 @@ import (
 var (
 	// ErrTransportNotFound is returned when a requested transport is not registered.
 	ErrTransportNotFound = errors.New("transport not found")
+	// ErrDatagramUnsupported is returned when a transport cannot exchange lossy datagrams.
+	ErrDatagramUnsupported = errors.New("transport does not support datagrams")
 )
 
 // Features describes the delivery semantics of a transport.
@@ -32,27 +34,35 @@ type Transport interface {
 	Features() Features
 }
 
+// DatagramTransport is an optional low-latency lossy datagram path exposed by
+// transports that can bypass the reliable byte stream.
+type DatagramTransport interface {
+	SendDatagram(data []byte) error
+	CanSendDatagram() bool
+}
+
 // Config holds common transport configuration.
 type Config struct {
-	Carrier      string
-	RoomURL      string
-	Name         string
-	OnData       func([]byte)
-	DNSServer    string
-	ProxyAddr    string
-	ProxyPort    int
-	VideoWidth   int
-	VideoHeight  int
-	VideoFPS     int
-	VideoBitrate string
-	VideoHW      string
+	Carrier         string
+	RoomURL         string
+	Name            string
+	OnData          func([]byte)
+	OnDatagram      func([]byte)
+	DNSServer       string
+	ProxyAddr       string
+	ProxyPort       int
+	VideoWidth      int
+	VideoHeight     int
+	VideoFPS        int
+	VideoBitrate    string
+	VideoHW         string
 	VideoQRSize     int
 	VideoQRRecovery string
 	VideoCodec      string
 	VideoTileModule int
 	VideoTileRS     int
-	VP8FPS       int
-	VP8BatchSize int
+	VP8FPS          int
+	VP8BatchSize    int
 }
 
 // Factory creates a transport instance.

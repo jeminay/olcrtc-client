@@ -23,28 +23,35 @@ type Link interface {
 	CanSend() bool
 }
 
+// DatagramLink is an optional low-latency lossy datagram path.
+type DatagramLink interface {
+	SendDatagram(data []byte) error
+	CanSendDatagram() bool
+}
+
 // Config holds common link configuration.
 type Config struct {
-	Transport    string
-	Carrier      string
-	RoomURL      string
-	Name         string
-	OnData       func([]byte)
-	DNSServer    string
-	ProxyAddr    string
-	ProxyPort    int
-	VideoWidth   int
-	VideoHeight  int
-	VideoFPS     int
-	VideoBitrate string
-	VideoHW      string
+	Transport       string
+	Carrier         string
+	RoomURL         string
+	Name            string
+	OnData          func([]byte)
+	OnDatagram      func([]byte)
+	DNSServer       string
+	ProxyAddr       string
+	ProxyPort       int
+	VideoWidth      int
+	VideoHeight     int
+	VideoFPS        int
+	VideoBitrate    string
+	VideoHW         string
 	VideoQRSize     int
 	VideoQRRecovery string
 	VideoCodec      string
 	VideoTileModule int
 	VideoTileRS     int
-	VP8FPS       int
-	VP8BatchSize int
+	VP8FPS          int
+	VP8BatchSize    int
 }
 
 // Factory creates a link instance.

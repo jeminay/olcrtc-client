@@ -15,7 +15,9 @@ import (
 )
 
 const (
-	wsURL = "wss://wbstream01-el.wb.ru:7880"
+	wsURL             = "wss://wbstream01-el.wb.ru:7880"
+	dataTopicReliable = "olcrtc.smux"
+	dataTopicLossy    = "olcrtc.udp"
 )
 
 var (
@@ -33,6 +35,7 @@ type Peer struct {
 	name            string
 	room            *lksdk.Room
 	onData          func([]byte)
+	onDatagram      func([]byte)
 	onReconnect     func(*webrtc.DataChannel)
 	shouldReconnect func() bool
 	onEnded         func(string)
@@ -40,9 +43,13 @@ type Peer struct {
 	sendCount       atomic.Uint64
 	publishCount    atomic.Uint64
 	recvCount       atomic.Uint64
+	datagramTxCount atomic.Uint64
+	datagramRxCount atomic.Uint64
 	enqueueBytes    atomic.Uint64
 	publishBytes    atomic.Uint64
 	recvBytes       atomic.Uint64
+	datagramTxBytes atomic.Uint64
+	datagramRxBytes atomic.Uint64
 	closed          atomic.Bool
 	done            chan struct{}
 	cancel          context.CancelFunc
@@ -53,15 +60,16 @@ type Peer struct {
 }
 
 // NewPeer creates a new WB Stream provider peer.
-func NewPeer(ctx context.Context, roomURL, name string, onData func([]byte)) (*Peer, error) {
+func NewPeer(ctx context.Context, roomURL, name string, onData, onDatagram func([]byte)) (*Peer, error) {
 	_, cancel := context.WithCancel(ctx)
 	return &Peer{
-		roomURL:   roomURL,
-		name:      name,
-		onData:    onData,
-		sendQueue: make(chan []byte, 5000),
-		done:      make(chan struct{}),
-		cancel:    cancel,
+		roomURL:    roomURL,
+		name:       name,
+		onData:     onData,
+		onDatagram: onDatagram,
+		sendQueue:  make(chan []byte, 5000),
+		done:       make(chan struct{}),
+		cancel:     cancel,
 	}, nil
 }
 
@@ -75,7 +83,15 @@ func (p *Peer) Connect(ctx context.Context) error {
 	roomCB := &lksdk.RoomCallback{
 		ParticipantCallback: lksdk.ParticipantCallback{
 			OnDataReceived: func(data []byte, params lksdk.DataReceiveParams) {
-				_ = params
+				if params.Topic == dataTopicLossy {
+					p.datagramRxCount.Add(1)
+					p.datagramRxBytes.Add(uint64(len(data)))
+					if p.onDatagram != nil {
+						p.onDatagram(data)
+					}
+					return
+				}
+
 				p.recvCount.Add(1)
 				p.recvBytes.Add(uint64(len(data)))
 				if p.onData != nil {
@@ -108,6 +124,7 @@ func (p *Peer) Connect(ctx context.Context) error {
 	}
 
 	p.room = room
+	log.Printf("WB Stream data topics: reliable=%s lossy=%s", dataTopicReliable, dataTopicLossy)
 	if err := p.publishPendingTracks(); err != nil {
 		return err
 	}
@@ -173,23 +190,30 @@ func (p *Peer) processSendQueue() {
 			}
 			p.publishCount.Add(1)
 			p.publishBytes.Add(uint64(len(data)))
-			if err := p.room.LocalParticipant.PublishDataPacket(
-				lksdk.UserData(data),
-				lksdk.WithDataPublishTopic("olcrtc"),
-				lksdk.WithDataPublishReliable(true),
-			); err != nil {
+			if err := p.publishData(data, dataTopicReliable, true); err != nil {
 				log.Printf("WB Stream publish data error: %v", err)
 			}
 		}
 	}
 }
 
+func (p *Peer) publishData(data []byte, topic string, reliable bool) error {
+	if p.room == nil || p.room.LocalParticipant == nil {
+		return ErrLiveKitNotConnected
+	}
+	return p.room.LocalParticipant.PublishDataPacket(
+		lksdk.UserData(data),
+		lksdk.WithDataPublishTopic(topic),
+		lksdk.WithDataPublishReliable(reliable),
+	)
+}
+
 func (p *Peer) logMetrics() {
 	defer p.wg.Done()
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	var lastEnqBytes, lastPubBytes, lastRecvBytes uint64
-	var lastEnqCount, lastPubCount, lastRecvCount uint64
+	var lastEnqBytes, lastPubBytes, lastRecvBytes, lastDgTXBytes, lastDgRXBytes uint64
+	var lastEnqCount, lastPubCount, lastRecvCount, lastDgTXCount, lastDgRXCount uint64
 	for {
 		select {
 		case <-p.done:
@@ -198,25 +222,35 @@ func (p *Peer) logMetrics() {
 			enqBytes := p.enqueueBytes.Load()
 			pubBytes := p.publishBytes.Load()
 			recvBytes := p.recvBytes.Load()
+			dgTXBytes := p.datagramTxBytes.Load()
+			dgRXBytes := p.datagramRxBytes.Load()
 			enqCount := p.sendCount.Load()
 			pubCount := p.publishCount.Load()
 			recvCount := p.recvCount.Load()
+			dgTXCount := p.datagramTxCount.Load()
+			dgRXCount := p.datagramRxCount.Load()
 			state := "nil"
 			if p.room != nil {
 				state = string(p.room.ConnectionState())
 			}
-			log.Printf("METRICS wb enq=%.1fKB/s pub=%.1fKB/s rx=%.1fKB/s enq_msg/s=%.1f pub_msg/s=%.1f rx_msg/s=%.1f queue=%d state=%s",
+			log.Printf("METRICS wb enq=%.1fKB/s pub=%.1fKB/s rx=%.1fKB/s udp_tx=%.1fKB/s udp_rx=%.1fKB/s enq_msg/s=%.1f pub_msg/s=%.1f rx_msg/s=%.1f udp_tx_msg/s=%.1f udp_rx_msg/s=%.1f queue=%d state=%s",
 				float64(enqBytes-lastEnqBytes)/5.0/1024.0,
 				float64(pubBytes-lastPubBytes)/5.0/1024.0,
 				float64(recvBytes-lastRecvBytes)/5.0/1024.0,
+				float64(dgTXBytes-lastDgTXBytes)/5.0/1024.0,
+				float64(dgRXBytes-lastDgRXBytes)/5.0/1024.0,
 				float64(enqCount-lastEnqCount)/5.0,
 				float64(pubCount-lastPubCount)/5.0,
 				float64(recvCount-lastRecvCount)/5.0,
+				float64(dgTXCount-lastDgTXCount)/5.0,
+				float64(dgRXCount-lastDgRXCount)/5.0,
 				len(p.sendQueue),
 				state,
 			)
 			lastEnqBytes, lastPubBytes, lastRecvBytes = enqBytes, pubBytes, recvBytes
+			lastDgTXBytes, lastDgRXBytes = dgTXBytes, dgRXBytes
 			lastEnqCount, lastPubCount, lastRecvCount = enqCount, pubCount, recvCount
+			lastDgTXCount, lastDgRXCount = dgTXCount, dgRXCount
 		}
 	}
 }
@@ -235,6 +269,25 @@ func (p *Peer) Send(data []byte) error {
 		return ErrSendQueueFull
 	}
 }
+
+// SendDatagram transmits a lossy unordered datagram through LiveKit's lossy
+// DataChannel. This is used for UDP traffic and intentionally bypasses smux.
+func (p *Peer) SendDatagram(data []byte) error {
+	if p.closed.Load() {
+		return ErrPeerClosed
+	}
+	if !p.CanSendDatagram() {
+		return ErrLiveKitNotConnected
+	}
+	if err := p.publishData(data, dataTopicLossy, false); err != nil {
+		return err
+	}
+	p.datagramTxCount.Add(1)
+	p.datagramTxBytes.Add(uint64(len(data)))
+	return nil
+}
+
+func (p *Peer) CanSendDatagram() bool { return p.CanSend() }
 
 // Close terminates the provider connection.
 func (p *Peer) Close() error {

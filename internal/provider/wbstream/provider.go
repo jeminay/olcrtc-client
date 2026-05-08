@@ -15,7 +15,7 @@ type wbStreamProvider struct {
 
 // New creates a new WB Stream provider instance.
 func New(ctx context.Context, cfg provider.Config) (provider.Provider, error) {
-	peer, err := NewPeer(ctx, cfg.RoomURL, cfg.Name, cfg.OnData)
+	peer, err := NewPeer(ctx, cfg.RoomURL, cfg.Name, cfg.OnData, cfg.OnDatagram)
 	if err != nil {
 		return nil, fmt.Errorf("create wbstream peer: %w", err)
 	}
@@ -31,6 +31,16 @@ func (w *wbStreamProvider) Connect(ctx context.Context) error {
 // Send transmits data to the room.
 func (w *wbStreamProvider) Send(data []byte) error {
 	return w.peer.Send(data)
+}
+
+// SendDatagram transmits data on the lossy DataChannel.
+func (w *wbStreamProvider) SendDatagram(data []byte) error {
+	return w.peer.SendDatagram(data)
+}
+
+// CanSendDatagram checks if the lossy DataChannel is ready.
+func (w *wbStreamProvider) CanSendDatagram() bool {
+	return w.peer.CanSendDatagram()
 }
 
 // Close terminates the provider connection.

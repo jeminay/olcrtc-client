@@ -20,6 +20,7 @@ func New(ctx context.Context, cfg link.Config) (link.Link, error) {
 		RoomURL:         cfg.RoomURL,
 		Name:            cfg.Name,
 		OnData:          cfg.OnData,
+		OnDatagram:      cfg.OnDatagram,
 		DNSServer:       cfg.DNSServer,
 		ProxyAddr:       cfg.ProxyAddr,
 		ProxyPort:       cfg.ProxyPort,
@@ -71,3 +72,19 @@ func (d *directLink) WatchConnection(ctx context.Context) {
 	d.transport.WatchConnection(ctx)
 }
 func (d *directLink) CanSend() bool { return d.transport.CanSend() }
+
+func (d *directLink) SendDatagram(data []byte) error {
+	dt, ok := d.transport.(transport.DatagramTransport)
+	if !ok {
+		return transport.ErrDatagramUnsupported
+	}
+	if err := dt.SendDatagram(data); err != nil {
+		return fmt.Errorf("transport datagram send: %w", err)
+	}
+	return nil
+}
+
+func (d *directLink) CanSendDatagram() bool {
+	dt, ok := d.transport.(transport.DatagramTransport)
+	return ok && dt.CanSendDatagram()
+}

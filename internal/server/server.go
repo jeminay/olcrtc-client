@@ -19,6 +19,7 @@ import (
 	"github.com/openlibrecommunity/olcrtc/internal/logger"
 	"github.com/openlibrecommunity/olcrtc/internal/muxconn"
 	"github.com/openlibrecommunity/olcrtc/internal/names"
+	"github.com/openlibrecommunity/olcrtc/internal/udpwire"
 	"github.com/xtaci/smux"
 )
 
@@ -46,6 +47,7 @@ type Server struct {
 	resolver       *net.Resolver
 	socksProxyAddr string
 	socksProxyPort int
+	udpFlows       sync.Map // flowID uint32 -> *udpDatagramFlow
 }
 
 // ConnectRequest is a message from the client to establish a new connection.
@@ -180,6 +182,7 @@ func (s *Server) bringUpLink(
 		RoomURL:         roomURL,
 		Name:            names.Generate(),
 		OnData:          s.onData,
+		OnDatagram:      s.onDatagram,
 		DNSServer:       s.dnsServer,
 		ProxyAddr:       s.socksProxyAddr,
 		ProxyPort:       s.socksProxyPort,
@@ -274,6 +277,40 @@ func (s *Server) onData(data []byte) {
 	}
 }
 
+func (s *Server) onDatagram(data []byte) {
+	pt, err := s.cipher.Decrypt(data)
+	if err != nil {
+		return
+	}
+	packet, err := udpwire.DecodeClient(pt)
+	if err != nil {
+		logger.Warnf("udp lossy decode failed: %v", err)
+		return
+	}
+	if len(packet.Payload) == 0 {
+		return
+	}
+
+	flow, err := s.getUDPDatagramFlow(packet)
+	if err != nil {
+		logger.Infof("udp lossy flow=%d %s:%d failed: %v", packet.FlowID, packet.Addr, packet.Port, err)
+		return
+	}
+	_ = flow.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	if _, err := flow.conn.Write(packet.Payload); err != nil {
+		logger.Infof("udp lossy flow=%d write failed: %v", packet.FlowID, err)
+		flow.close()
+	}
+}
+
+func (s *Server) datagramLink() (link.DatagramLink, bool) {
+	dl, ok := s.ln.(link.DatagramLink)
+	if !ok || !dl.CanSendDatagram() {
+		return nil, false
+	}
+	return dl, true
+}
+
 // serve drives the smux Accept loop, spawning a tunnel per inbound stream.
 // The loop tolerates session bounces (reconnects) by waiting until a fresh
 // session is installed instead of terminating the server.
@@ -318,6 +355,12 @@ func (s *Server) serve(ctx context.Context) {
 }
 
 func (s *Server) shutdown() {
+	s.udpFlows.Range(func(_, val any) bool {
+		if flow, ok := val.(*udpDatagramFlow); ok {
+			flow.close()
+		}
+		return true
+	})
 	s.sessMu.Lock()
 	if s.session != nil {
 		_ = s.session.Close()
@@ -460,20 +503,129 @@ func (s *Server) handleUDPStream(stream *smux.Stream, req ConnectRequest) {
 	}
 }
 
+type udpDatagramFlow struct {
+	server *Server
+	flowID uint32
+	addr   string
+	port   int
+	conn   *net.UDPConn
+	closed sync.Once
+}
+
+func (s *Server) getUDPDatagramFlow(packet udpwire.ClientPacket) (*udpDatagramFlow, error) {
+	if val, ok := s.udpFlows.Load(packet.FlowID); ok {
+		flow := val.(*udpDatagramFlow)
+		if flow.addr == packet.Addr && flow.port == packet.Port {
+			return flow, nil
+		}
+		logger.Infof("udp lossy flow=%d target changed %s:%d -> %s:%d; recreating", packet.FlowID, flow.addr, flow.port, packet.Addr, packet.Port)
+		flow.close()
+	}
+
+	flow, err := s.newUDPDatagramFlow(packet)
+	if err != nil {
+		return nil, err
+	}
+	actual, loaded := s.udpFlows.LoadOrStore(packet.FlowID, flow)
+	if loaded {
+		_ = flow.conn.Close()
+		return actual.(*udpDatagramFlow), nil
+	}
+	flow.start()
+	return flow, nil
+}
+
+func (s *Server) newUDPDatagramFlow(packet udpwire.ClientPacket) (*udpDatagramFlow, error) {
+	udpAddr, err := s.resolveUDPAddr(packet.Addr, packet.Port)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := net.DialUDP("udp4", nil, udpAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	flow := &udpDatagramFlow{
+		server: s,
+		flowID: packet.FlowID,
+		addr:   packet.Addr,
+		port:   packet.Port,
+		conn:   conn,
+	}
+	logger.Infof("udp lossy flow=%d -> %s", packet.FlowID, net.JoinHostPort(packet.Addr, strconv.Itoa(packet.Port)))
+	return flow, nil
+}
+
+func (f *udpDatagramFlow) start() {
+	f.server.wg.Add(1)
+	go func() {
+		defer f.server.wg.Done()
+		f.readLoop()
+	}()
+}
+
+func (f *udpDatagramFlow) readLoop() {
+	defer f.close()
+	buf := make([]byte, maxUDPPayload)
+	for {
+		_ = f.conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
+		n, err := f.conn.Read(buf)
+		if err != nil {
+			return
+		}
+		if err := f.sendToClient(buf[:n]); err != nil {
+			logger.Infof("udp lossy flow=%d send failed: %v", f.flowID, err)
+			return
+		}
+	}
+}
+
+func (f *udpDatagramFlow) sendToClient(payload []byte) error {
+	dl, ok := f.server.datagramLink()
+	if !ok {
+		return fmt.Errorf("datagram link not ready")
+	}
+	packet, err := udpwire.EncodeServer(udpwire.ServerPacket{
+		FlowID:  f.flowID,
+		Payload: payload,
+	})
+	if err != nil {
+		return err
+	}
+	enc, err := f.server.cipher.Encrypt(packet)
+	if err != nil {
+		return err
+	}
+	return dl.SendDatagram(enc)
+}
+
+func (f *udpDatagramFlow) close() {
+	f.closed.Do(func() {
+		f.server.udpFlows.Delete(f.flowID)
+		if f.conn != nil {
+			_ = f.conn.Close()
+		}
+	})
+}
+
 func (s *Server) resolveUDP(req ConnectRequest) (*net.UDPAddr, error) {
-	port := strconv.Itoa(req.Port)
-	if ip := net.ParseIP(req.Addr); ip != nil {
+	return s.resolveUDPAddr(req.Addr, req.Port)
+}
+
+func (s *Server) resolveUDPAddr(addr string, portNum int) (*net.UDPAddr, error) {
+	port := strconv.Itoa(portNum)
+	if ip := net.ParseIP(addr); ip != nil {
 		ip4 := ip.To4()
 		if ip4 == nil {
-			return nil, fmt.Errorf("udp ipv6 is not supported yet: %s", req.Addr)
+			return nil, fmt.Errorf("udp ipv6 is not supported yet: %s", addr)
 		}
-		return &net.UDPAddr{IP: ip4, Port: req.Port}, nil
+		return &net.UDPAddr{IP: ip4, Port: portNum}, nil
 	}
-	ips, err := s.resolver.LookupIP(context.Background(), "ip4", req.Addr)
+	ips, err := s.resolver.LookupIP(context.Background(), "ip4", addr)
 	if err != nil || len(ips) == 0 {
-		return nil, fmt.Errorf("lookup %s:%s: %w", req.Addr, port, err)
+		return nil, fmt.Errorf("lookup %s:%s: %w", addr, port, err)
 	}
-	return &net.UDPAddr{IP: ips[0], Port: req.Port}, nil
+	return &net.UDPAddr{IP: ips[0], Port: portNum}, nil
 }
 
 func writeUDPFrame(w io.Writer, payload []byte) error {

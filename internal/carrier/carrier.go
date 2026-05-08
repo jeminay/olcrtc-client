@@ -15,12 +15,15 @@ var (
 	ErrByteStreamUnsupported = errors.New("carrier does not support byte stream")
 	// ErrVideoTrackUnsupported is returned when a carrier cannot exchange video tracks.
 	ErrVideoTrackUnsupported = errors.New("carrier does not support video tracks")
+	// ErrDatagramUnsupported is returned when a carrier cannot exchange lossy datagrams.
+	ErrDatagramUnsupported = errors.New("carrier does not support datagrams")
 )
 
 // Capabilities describes the transport primitives a carrier can expose.
 type Capabilities struct {
 	ByteStream bool
 	VideoTrack bool
+	Datagram   bool
 }
 
 // Session is the carrier-level runtime handle.
@@ -38,14 +41,20 @@ type VideoTrackCapable interface {
 	OpenVideoTrack() (VideoTrack, error)
 }
 
+// DatagramCapable is implemented by carriers that expose a lossy datagram path.
+type DatagramCapable interface {
+	OpenDatagram() (Datagram, error)
+}
+
 // Config holds carrier configuration.
 type Config struct {
-	RoomURL   string
-	Name      string
-	OnData    func([]byte)
-	DNSServer string
-	ProxyAddr string
-	ProxyPort int
+	RoomURL    string
+	Name       string
+	OnData     func([]byte)
+	OnDatagram func([]byte)
+	DNSServer  string
+	ProxyAddr  string
+	ProxyPort  int
 }
 
 // Factory creates a new carrier session.
@@ -63,12 +72,13 @@ func Register(name string, factory Factory) {
 func RegisterLegacy(name string, factory provider.Factory) {
 	Register(name, func(ctx context.Context, cfg Config) (Session, error) {
 		legacy, err := factory(ctx, provider.Config{
-			RoomURL:   cfg.RoomURL,
-			Name:      cfg.Name,
-			OnData:    cfg.OnData,
-			DNSServer: cfg.DNSServer,
-			ProxyAddr: cfg.ProxyAddr,
-			ProxyPort: cfg.ProxyPort,
+			RoomURL:    cfg.RoomURL,
+			Name:       cfg.Name,
+			OnData:     cfg.OnData,
+			OnDatagram: cfg.OnDatagram,
+			DNSServer:  cfg.DNSServer,
+			ProxyAddr:  cfg.ProxyAddr,
+			ProxyPort:  cfg.ProxyPort,
 		})
 		if err != nil {
 			return nil, err
