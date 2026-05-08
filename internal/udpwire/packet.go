@@ -10,7 +10,9 @@ import (
 )
 
 const (
-	Version = 1
+	// Version 2 adds per-flow sequence numbers and sender timestamps so receivers
+	// can drop stale unordered datagrams and log latency without changing crypto.
+	Version = 2
 
 	TypeClientToServer = 1
 	TypeServerToClient = 2
@@ -26,6 +28,7 @@ var (
 	ErrUnsupportedAddr  = errors.New("udpwire: unsupported address type")
 	ErrUnsupportedVer   = errors.New("udpwire: unsupported version")
 	ErrInvalidFlowID    = errors.New("udpwire: invalid flow id")
+	ErrInvalidSeq       = errors.New("udpwire: invalid seq")
 	ErrInvalidPort      = errors.New("udpwire: invalid port")
 	ErrPayloadTooLarge  = errors.New("udpwire: payload too large")
 	ErrDomainTooLong    = errors.New("udpwire: domain too long")
@@ -33,20 +36,29 @@ var (
 )
 
 type ClientPacket struct {
-	FlowID  uint32
-	Addr    string
-	Port    int
-	Payload []byte
+	FlowID       uint32
+	Seq          uint64
+	SentUnixNano int64
+	Addr         string
+	Port         int
+	Payload      []byte
 }
 
 type ServerPacket struct {
-	FlowID  uint32
-	Payload []byte
+	FlowID                 uint32
+	Seq                    uint64
+	SentUnixNano           int64
+	EchoClientSeq          uint64
+	EchoClientSentUnixNano int64
+	Payload                []byte
 }
 
 func EncodeClient(p ClientPacket) ([]byte, error) {
 	if p.FlowID == 0 {
 		return nil, ErrInvalidFlowID
+	}
+	if p.Seq == 0 {
+		return nil, ErrInvalidSeq
 	}
 	if p.Port < 0 || p.Port > 65535 {
 		return nil, ErrInvalidPort
@@ -60,9 +72,11 @@ func EncodeClient(p ClientPacket) ([]byte, error) {
 		return nil, err
 	}
 
-	out := make([]byte, 0, 2+4+1+len(addrBytes)+2+2+len(p.Payload))
+	out := make([]byte, 0, 2+4+8+8+1+len(addrBytes)+2+2+len(p.Payload))
 	out = append(out, Version, TypeClientToServer)
 	out = binary.BigEndian.AppendUint32(out, p.FlowID)
+	out = binary.BigEndian.AppendUint64(out, p.Seq)
+	out = binary.BigEndian.AppendUint64(out, uint64(p.SentUnixNano))
 	out = append(out, addrType)
 	out = append(out, addrBytes...)
 	out = binary.BigEndian.AppendUint16(out, uint16(p.Port))
@@ -72,7 +86,7 @@ func EncodeClient(p ClientPacket) ([]byte, error) {
 }
 
 func DecodeClient(packet []byte) (ClientPacket, error) {
-	if len(packet) < 2+4+1+2+2 {
+	if len(packet) < 2+4+8+8+1+2+2 {
 		return ClientPacket{}, ErrPacketTooShort
 	}
 	if packet[0] != Version {
@@ -85,7 +99,12 @@ func DecodeClient(packet []byte) (ClientPacket, error) {
 	if flowID == 0 {
 		return ClientPacket{}, ErrInvalidFlowID
 	}
-	off := 6
+	seq := binary.BigEndian.Uint64(packet[6:14])
+	if seq == 0 {
+		return ClientPacket{}, ErrInvalidSeq
+	}
+	sentUnixNano := int64(binary.BigEndian.Uint64(packet[14:22]))
+	off := 22
 	addr, next, err := decodeAddr(packet, off)
 	if err != nil {
 		return ClientPacket{}, err
@@ -100,10 +119,12 @@ func DecodeClient(packet []byte) (ClientPacket, error) {
 		return ClientPacket{}, ErrPacketTooShort
 	}
 	return ClientPacket{
-		FlowID:  flowID,
-		Addr:    addr,
-		Port:    port,
-		Payload: append([]byte(nil), packet[payloadStart:payloadStart+payloadLen]...),
+		FlowID:       flowID,
+		Seq:          seq,
+		SentUnixNano: sentUnixNano,
+		Addr:         addr,
+		Port:         port,
+		Payload:      append([]byte(nil), packet[payloadStart:payloadStart+payloadLen]...),
 	}, nil
 }
 
@@ -111,19 +132,26 @@ func EncodeServer(p ServerPacket) ([]byte, error) {
 	if p.FlowID == 0 {
 		return nil, ErrInvalidFlowID
 	}
+	if p.Seq == 0 {
+		return nil, ErrInvalidSeq
+	}
 	if len(p.Payload) > 65535 {
 		return nil, ErrPayloadTooLarge
 	}
-	out := make([]byte, 0, 2+4+2+len(p.Payload))
+	out := make([]byte, 0, 2+4+8+8+8+8+2+len(p.Payload))
 	out = append(out, Version, TypeServerToClient)
 	out = binary.BigEndian.AppendUint32(out, p.FlowID)
+	out = binary.BigEndian.AppendUint64(out, p.Seq)
+	out = binary.BigEndian.AppendUint64(out, uint64(p.SentUnixNano))
+	out = binary.BigEndian.AppendUint64(out, p.EchoClientSeq)
+	out = binary.BigEndian.AppendUint64(out, uint64(p.EchoClientSentUnixNano))
 	out = binary.BigEndian.AppendUint16(out, uint16(len(p.Payload)))
 	out = append(out, p.Payload...)
 	return out, nil
 }
 
 func DecodeServer(packet []byte) (ServerPacket, error) {
-	if len(packet) < 2+4+2 {
+	if len(packet) < 2+4+8+8+8+8+2 {
 		return ServerPacket{}, ErrPacketTooShort
 	}
 	if packet[0] != Version {
@@ -136,13 +164,24 @@ func DecodeServer(packet []byte) (ServerPacket, error) {
 	if flowID == 0 {
 		return ServerPacket{}, ErrInvalidFlowID
 	}
-	payloadLen := int(binary.BigEndian.Uint16(packet[6:8]))
-	if len(packet) < 8+payloadLen {
+	seq := binary.BigEndian.Uint64(packet[6:14])
+	if seq == 0 {
+		return ServerPacket{}, ErrInvalidSeq
+	}
+	sentUnixNano := int64(binary.BigEndian.Uint64(packet[14:22]))
+	echoClientSeq := binary.BigEndian.Uint64(packet[22:30])
+	echoClientSentUnixNano := int64(binary.BigEndian.Uint64(packet[30:38]))
+	payloadLen := int(binary.BigEndian.Uint16(packet[38:40]))
+	if len(packet) < 40+payloadLen {
 		return ServerPacket{}, ErrPacketTooShort
 	}
 	return ServerPacket{
-		FlowID:  flowID,
-		Payload: append([]byte(nil), packet[8:8+payloadLen]...),
+		FlowID:                 flowID,
+		Seq:                    seq,
+		SentUnixNano:           sentUnixNano,
+		EchoClientSeq:          echoClientSeq,
+		EchoClientSentUnixNano: echoClientSentUnixNano,
+		Payload:                append([]byte(nil), packet[40:40+payloadLen]...),
 	}, nil
 }
 

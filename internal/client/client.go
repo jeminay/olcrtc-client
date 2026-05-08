@@ -3,6 +3,7 @@ package client
 
 import (
 	"context"
+	crand "crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -19,6 +20,7 @@ import (
 	"github.com/openlibrecommunity/olcrtc/internal/logger"
 	"github.com/openlibrecommunity/olcrtc/internal/muxconn"
 	"github.com/openlibrecommunity/olcrtc/internal/names"
+	"github.com/openlibrecommunity/olcrtc/internal/udpmetrics"
 	"github.com/openlibrecommunity/olcrtc/internal/udpwire"
 	"github.com/xtaci/smux"
 )
@@ -42,14 +44,15 @@ var (
 
 // Client handles local SOCKS5 connections and tunnels them to the server.
 type Client struct {
-	ln        link.Link
-	cipher    *crypto.Cipher
-	conn      *muxconn.Conn
-	session   *smux.Session
-	sessMu    sync.RWMutex
-	dnsServer string
-	udpFlows  sync.Map // flowID uint32 -> *udpFlow
-	udpFlowID atomic.Uint32
+	ln         link.Link
+	cipher     *crypto.Cipher
+	conn       *muxconn.Conn
+	session    *smux.Session
+	sessMu     sync.RWMutex
+	dnsServer  string
+	udpFlows   sync.Map // flowID uint32 -> *udpFlow
+	udpFlowID  atomic.Uint32
+	udpMetrics udpmetrics.Metrics
 }
 
 type socks5Req struct {
@@ -134,6 +137,8 @@ func RunWithReady(
 	}
 
 	c := &Client{cipher: cipher, dnsServer: dnsServer}
+	c.initUDPFlowID()
+	c.udpMetrics.Start(runCtx, "client")
 
 	if err := c.bringUpLink(
 		runCtx, linkName, transportName, carrierName, roomURL, cancel,
@@ -163,6 +168,15 @@ func RunWithReady(
 
 	<-runCtx.Done()
 	return nil
+}
+
+func (c *Client) initUDPFlowID() {
+	var b [4]byte
+	if _, err := crand.Read(b[:]); err != nil {
+		c.udpFlowID.Store(uint32(time.Now().UnixNano()))
+		return
+	}
+	c.udpFlowID.Store(binary.BigEndian.Uint32(b[:]))
 }
 
 func (c *Client) bringUpLink(
@@ -306,6 +320,7 @@ func (c *Client) onData(data []byte) {
 }
 
 func (c *Client) onDatagram(data []byte) {
+	now := time.Now()
 	pt, err := c.cipher.Decrypt(data)
 	if err != nil {
 		return
@@ -320,11 +335,22 @@ func (c *Client) onDatagram(data []byte) {
 		return
 	}
 	flow := val.(*udpFlow)
+	if !flow.acceptServerPacket(packet) {
+		c.udpMetrics.RecordDropReorder()
+		return
+	}
+	if packet.SentUnixNano > 0 {
+		c.udpMetrics.RecordAge(now.Sub(time.Unix(0, packet.SentUnixNano)))
+	}
+	if packet.EchoClientSentUnixNano > 0 {
+		c.udpMetrics.RecordRTT(now.Sub(time.Unix(0, packet.EchoClientSentUnixNano)))
+	}
 	if flow.udpConn == nil || flow.clientAddr == nil {
 		return
 	}
 	resp := buildSocksUDP(flow.targetAddr, flow.targetPort, packet.Payload)
 	_, _ = flow.udpConn.WriteToUDP(resp, flow.clientAddr)
+	c.udpMetrics.RecordRX()
 }
 
 func (c *Client) datagramLink() (link.DatagramLink, bool) {
@@ -456,15 +482,17 @@ type socksUDPPacket struct {
 }
 
 type udpFlow struct {
-	client     *Client
-	stream     *smux.Stream
-	mu         sync.Mutex
-	datagram   bool
-	flowID     uint32
-	udpConn    *net.UDPConn
-	clientAddr *net.UDPAddr
-	targetAddr string
-	targetPort int
+	client        *Client
+	stream        *smux.Stream
+	mu            sync.Mutex
+	datagram      bool
+	flowID        uint32
+	udpConn       *net.UDPConn
+	clientAddr    *net.UDPAddr
+	targetAddr    string
+	targetPort    int
+	seq           atomic.Uint64
+	lastServerSeq atomic.Uint64
 }
 
 func (c *Client) newUDPFlow(udpConn *net.UDPConn, clientAddr *net.UDPAddr, targetAddr string, targetPort int) *udpFlow {
@@ -542,10 +570,12 @@ func (f *udpFlow) sendDatagram(payload []byte) error {
 		return ErrRemoteNotReady
 	}
 	packet, err := udpwire.EncodeClient(udpwire.ClientPacket{
-		FlowID:  f.flowID,
-		Addr:    f.targetAddr,
-		Port:    f.targetPort,
-		Payload: payload,
+		FlowID:       f.flowID,
+		Seq:          f.seq.Add(1),
+		SentUnixNano: time.Now().UnixNano(),
+		Addr:         f.targetAddr,
+		Port:         f.targetPort,
+		Payload:      payload,
 	})
 	if err != nil {
 		return err
@@ -554,7 +584,23 @@ func (f *udpFlow) sendDatagram(payload []byte) error {
 	if err != nil {
 		return err
 	}
-	return dl.SendDatagram(enc)
+	if err := dl.SendDatagram(enc); err != nil {
+		return err
+	}
+	f.client.udpMetrics.RecordTX()
+	return nil
+}
+
+func (f *udpFlow) acceptServerPacket(packet udpwire.ServerPacket) bool {
+	for {
+		last := f.lastServerSeq.Load()
+		if packet.Seq <= last {
+			return false
+		}
+		if f.lastServerSeq.CompareAndSwap(last, packet.Seq) {
+			return true
+		}
+	}
 }
 
 func (f *udpFlow) close() {

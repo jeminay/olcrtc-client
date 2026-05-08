@@ -9,10 +9,12 @@ import (
 func TestClientPacketRoundTripIPv4(t *testing.T) {
 	payload := []byte("cs2-payload")
 	encoded, err := EncodeClient(ClientPacket{
-		FlowID:  42,
-		Addr:    "1.2.3.4",
-		Port:    27015,
-		Payload: payload,
+		FlowID:       42,
+		Seq:          1001,
+		SentUnixNano: 123456789,
+		Addr:         "1.2.3.4",
+		Port:         27015,
+		Payload:      payload,
 	})
 	if err != nil {
 		t.Fatalf("EncodeClient: %v", err)
@@ -21,7 +23,7 @@ func TestClientPacketRoundTripIPv4(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeClient: %v", err)
 	}
-	if decoded.FlowID != 42 || decoded.Addr != "1.2.3.4" || decoded.Port != 27015 {
+	if decoded.FlowID != 42 || decoded.Seq != 1001 || decoded.SentUnixNano != 123456789 || decoded.Addr != "1.2.3.4" || decoded.Port != 27015 {
 		t.Fatalf("decoded header mismatch: %+v", decoded)
 	}
 	if !bytes.Equal(decoded.Payload, payload) {
@@ -32,10 +34,12 @@ func TestClientPacketRoundTripIPv4(t *testing.T) {
 func TestClientPacketRoundTripDomain(t *testing.T) {
 	payload := []byte{0, 1, 2, 3}
 	encoded, err := EncodeClient(ClientPacket{
-		FlowID:  7,
-		Addr:    "example.org",
-		Port:    443,
-		Payload: payload,
+		FlowID:       7,
+		Seq:          9,
+		SentUnixNano: 987654321,
+		Addr:         "example.org",
+		Port:         443,
+		Payload:      payload,
 	})
 	if err != nil {
 		t.Fatalf("EncodeClient: %v", err)
@@ -44,7 +48,7 @@ func TestClientPacketRoundTripDomain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeClient: %v", err)
 	}
-	if decoded.FlowID != 7 || decoded.Addr != "example.org" || decoded.Port != 443 {
+	if decoded.FlowID != 7 || decoded.Seq != 9 || decoded.SentUnixNano != 987654321 || decoded.Addr != "example.org" || decoded.Port != 443 {
 		t.Fatalf("decoded header mismatch: %+v", decoded)
 	}
 	if !bytes.Equal(decoded.Payload, payload) {
@@ -54,7 +58,14 @@ func TestClientPacketRoundTripDomain(t *testing.T) {
 
 func TestServerPacketRoundTrip(t *testing.T) {
 	payload := []byte("reply")
-	encoded, err := EncodeServer(ServerPacket{FlowID: 99, Payload: payload})
+	encoded, err := EncodeServer(ServerPacket{
+		FlowID:                 99,
+		Seq:                    777,
+		SentUnixNano:           111222333,
+		EchoClientSeq:          555,
+		EchoClientSentUnixNano: 444555666,
+		Payload:                payload,
+	})
 	if err != nil {
 		t.Fatalf("EncodeServer: %v", err)
 	}
@@ -62,8 +73,8 @@ func TestServerPacketRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeServer: %v", err)
 	}
-	if decoded.FlowID != 99 {
-		t.Fatalf("flow id mismatch: %d", decoded.FlowID)
+	if decoded.FlowID != 99 || decoded.Seq != 777 || decoded.SentUnixNano != 111222333 || decoded.EchoClientSeq != 555 || decoded.EchoClientSentUnixNano != 444555666 {
+		t.Fatalf("server header mismatch: %+v", decoded)
 	}
 	if !bytes.Equal(decoded.Payload, payload) {
 		t.Fatalf("payload mismatch: %q", decoded.Payload)
@@ -71,7 +82,7 @@ func TestServerPacketRoundTrip(t *testing.T) {
 }
 
 func TestDecodeRejectsWrongType(t *testing.T) {
-	encoded, err := EncodeClient(ClientPacket{FlowID: 1, Addr: "1.2.3.4", Port: 27015, Payload: []byte("x")})
+	encoded, err := EncodeClient(ClientPacket{FlowID: 1, Seq: 1, SentUnixNano: 1, Addr: "1.2.3.4", Port: 27015, Payload: []byte("x")})
 	if err != nil {
 		t.Fatalf("EncodeClient: %v", err)
 	}
@@ -83,12 +94,35 @@ func TestDecodeRejectsWrongType(t *testing.T) {
 }
 
 func TestDecodeRejectsTruncatedPayload(t *testing.T) {
-	encoded, err := EncodeServer(ServerPacket{FlowID: 1, Payload: []byte("reply")})
+	encoded, err := EncodeServer(ServerPacket{FlowID: 1, Seq: 1, SentUnixNano: 1, Payload: []byte("reply")})
 	if err != nil {
 		t.Fatalf("EncodeServer: %v", err)
 	}
 	_, err = DecodeServer(encoded[:len(encoded)-1])
 	if !errors.Is(err, ErrPacketTooShort) {
 		t.Fatalf("expected ErrPacketTooShort, got %v", err)
+	}
+}
+
+func TestDecodeRejectsOldVersion(t *testing.T) {
+	encoded, err := EncodeServer(ServerPacket{FlowID: 1, Seq: 1, SentUnixNano: 1, Payload: []byte("reply")})
+	if err != nil {
+		t.Fatalf("EncodeServer: %v", err)
+	}
+	encoded[0] = 1
+	_, err = DecodeServer(encoded)
+	if !errors.Is(err, ErrUnsupportedVer) {
+		t.Fatalf("expected ErrUnsupportedVer, got %v", err)
+	}
+}
+
+func TestEncodeRejectsZeroSeq(t *testing.T) {
+	_, err := EncodeClient(ClientPacket{FlowID: 1, Addr: "1.2.3.4", Port: 27015})
+	if !errors.Is(err, ErrInvalidSeq) {
+		t.Fatalf("expected ErrInvalidSeq, got %v", err)
+	}
+	_, err = EncodeServer(ServerPacket{FlowID: 1})
+	if !errors.Is(err, ErrInvalidSeq) {
+		t.Fatalf("expected ErrInvalidSeq, got %v", err)
 	}
 }

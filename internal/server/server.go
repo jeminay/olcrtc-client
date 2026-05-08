@@ -12,6 +12,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/openlibrecommunity/olcrtc/internal/crypto"
@@ -19,6 +20,7 @@ import (
 	"github.com/openlibrecommunity/olcrtc/internal/logger"
 	"github.com/openlibrecommunity/olcrtc/internal/muxconn"
 	"github.com/openlibrecommunity/olcrtc/internal/names"
+	"github.com/openlibrecommunity/olcrtc/internal/udpmetrics"
 	"github.com/openlibrecommunity/olcrtc/internal/udpwire"
 	"github.com/xtaci/smux"
 )
@@ -48,6 +50,7 @@ type Server struct {
 	socksProxyAddr string
 	socksProxyPort int
 	udpFlows       sync.Map // flowID uint32 -> *udpDatagramFlow
+	udpMetrics     udpmetrics.Metrics
 }
 
 // ConnectRequest is a message from the client to establish a new connection.
@@ -101,6 +104,7 @@ func Run(
 		socksProxyAddr: socksProxyAddr,
 		socksProxyPort: socksProxyPort,
 	}
+	s.udpMetrics.Start(runCtx, "server")
 	s.setupResolver()
 
 	if err := s.bringUpLink(
@@ -278,6 +282,7 @@ func (s *Server) onData(data []byte) {
 }
 
 func (s *Server) onDatagram(data []byte) {
+	now := time.Now()
 	pt, err := s.cipher.Decrypt(data)
 	if err != nil {
 		return
@@ -296,11 +301,20 @@ func (s *Server) onDatagram(data []byte) {
 		logger.Infof("udp lossy flow=%d %s:%d failed: %v", packet.FlowID, packet.Addr, packet.Port, err)
 		return
 	}
+	if !flow.acceptClientPacket(packet) {
+		s.udpMetrics.RecordDropReorder()
+		return
+	}
+	if packet.SentUnixNano > 0 {
+		s.udpMetrics.RecordAge(now.Sub(time.Unix(0, packet.SentUnixNano)))
+	}
 	_ = flow.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	if _, err := flow.conn.Write(packet.Payload); err != nil {
 		logger.Infof("udp lossy flow=%d write failed: %v", packet.FlowID, err)
 		flow.close()
+		return
 	}
+	s.udpMetrics.RecordRX()
 }
 
 func (s *Server) datagramLink() (link.DatagramLink, bool) {
@@ -504,12 +518,15 @@ func (s *Server) handleUDPStream(stream *smux.Stream, req ConnectRequest) {
 }
 
 type udpDatagramFlow struct {
-	server *Server
-	flowID uint32
-	addr   string
-	port   int
-	conn   *net.UDPConn
-	closed sync.Once
+	server                 *Server
+	flowID                 uint32
+	addr                   string
+	port                   int
+	conn                   *net.UDPConn
+	closed                 sync.Once
+	seq                    atomic.Uint64
+	lastClientSeq          atomic.Uint64
+	lastClientSentUnixNano atomic.Int64
 }
 
 func (s *Server) getUDPDatagramFlow(packet udpwire.ClientPacket) (*udpDatagramFlow, error) {
@@ -586,8 +603,12 @@ func (f *udpDatagramFlow) sendToClient(payload []byte) error {
 		return fmt.Errorf("datagram link not ready")
 	}
 	packet, err := udpwire.EncodeServer(udpwire.ServerPacket{
-		FlowID:  f.flowID,
-		Payload: payload,
+		FlowID:                 f.flowID,
+		Seq:                    f.seq.Add(1),
+		SentUnixNano:           time.Now().UnixNano(),
+		EchoClientSeq:          f.lastClientSeq.Load(),
+		EchoClientSentUnixNano: f.lastClientSentUnixNano.Load(),
+		Payload:                payload,
 	})
 	if err != nil {
 		return err
@@ -596,7 +617,24 @@ func (f *udpDatagramFlow) sendToClient(payload []byte) error {
 	if err != nil {
 		return err
 	}
-	return dl.SendDatagram(enc)
+	if err := dl.SendDatagram(enc); err != nil {
+		return err
+	}
+	f.server.udpMetrics.RecordTX()
+	return nil
+}
+
+func (f *udpDatagramFlow) acceptClientPacket(packet udpwire.ClientPacket) bool {
+	for {
+		last := f.lastClientSeq.Load()
+		if packet.Seq <= last {
+			return false
+		}
+		if f.lastClientSeq.CompareAndSwap(last, packet.Seq) {
+			f.lastClientSentUnixNano.Store(packet.SentUnixNano)
+			return true
+		}
+	}
 }
 
 func (f *udpDatagramFlow) close() {
