@@ -69,7 +69,7 @@ function Write-SingBoxConfig($cc) {
   if ($cc.private_direct) { [void]$rules.Add([ordered]@{ ip_is_private=$true; outbound='direct' }) }
 
   $cfg = [ordered]@{
-    log = [ordered]@{ level='debug'; timestamp=$true; output=$sbLog }
+    log = [ordered]@{ level='warn'; timestamp=$true; output=$sbLog }
     dns = [ordered]@{
       servers = @(
         [ordered]@{ tag='remote'; address='tcp://1.1.1.1'; detour='proxy' },
@@ -112,10 +112,24 @@ function Resolve-WBHosts {
 
 function Test-Socks($cc) {
   try {
-    $out = & curl.exe --socks5-hostname "$($cc.socks_host):$($cc.socks_port)" -4 -s -k --ssl-no-revoke -m 12 https://icanhazip.com 2>$null
+    $out = & curl.exe --socks5-hostname "$($cc.socks_host):$($cc.socks_port)" -4 -s -k --ssl-no-revoke -m 8 https://icanhazip.com 2>$null
     if ($out -match '\d+\.\d+\.\d+\.\d+') { return $out.Trim() }
   } catch {}
   return $null
+}
+
+function Test-LocalPort([string]$host, [int]$port, [int]$timeoutMs=350) {
+  $client = New-Object Net.Sockets.TcpClient
+  try {
+    $iar = $client.BeginConnect($host, $port, $null, $null)
+    if(-not $iar.AsyncWaitHandle.WaitOne($timeoutMs, $false)) { return $false }
+    $client.EndConnect($iar)
+    return $true
+  } catch {
+    return $false
+  } finally {
+    try { $client.Close() } catch {}
+  }
 }
 
 $c = Load-Conf
@@ -162,6 +176,9 @@ $exitBtn = New-Object Windows.Forms.Button; $exitBtn.Text='Exit'; $exitBtn.Locat
 $global:olcProc = $null
 $global:sbProc = $null
 $global:offsets = @{}
+$global:connectState = 'idle'
+$global:connectStarted = $null
+$global:currentConf = $null
 
 function Add-Log($s) {
   $line = (Get-Date -Format HH:mm:ss) + ' ' + $s + "`r`n"
@@ -186,25 +203,46 @@ function Set-Status($text,$color) { $status.Text = 'Status: ' + $text; $status.F
 
 function Stop-Tree($p) {
   try {
-    if($p -and -not $p.HasExited) { & taskkill.exe /PID $p.Id /T /F | Out-Null }
+    if($p -and -not $p.HasExited) {
+      & taskkill.exe /PID $p.Id /T /F | Out-Null
+      try { [void]$p.WaitForExit(3000) } catch {}
+    }
   } catch {
     try { if($p -and -not $p.HasExited){ $p.Kill() } } catch {}
   }
 }
-function Stop-All {
+function Stop-All([bool]$silent=$false) {
   Stop-Tree $global:sbProc
   Stop-Tree $global:olcProc
   try { Get-Process -Name sing-box -ErrorAction SilentlyContinue | Stop-Process -Force } catch {}
   try { Get-Process -Name olcrtc -ErrorAction SilentlyContinue | Stop-Process -Force } catch {}
+  Start-Sleep -Milliseconds 500
   $global:sbProc=$null; $global:olcProc=$null
+  $global:connectState='idle'; $global:connectStarted=$null; $global:currentConf=$null
   $connectBtn.Enabled=$true; $disconnectBtn.Enabled=$false
   Set-Status 'stopped' ([Drawing.Color]::DarkRed)
-  Add-Log 'Disconnected'
+  if(-not $silent) { Add-Log 'Disconnected' }
 }
 
-function Start-HiddenProcess($file,$argList,$stdout,$stderr,$envs=@{}) {
-  New-Item -ItemType File -Force -Path $stdout | Out-Null
-  New-Item -ItemType File -Force -Path $stderr | Out-Null
+function Redact-ArgsForLog($argItems) {
+  $out = New-Object System.Collections.ArrayList
+  $hideNext = $false
+  foreach($a in $argItems) {
+    if($hideNext) { [void]$out.Add('***'); $hideNext=$false; continue }
+    [void]$out.Add($a)
+    if([string]$a -eq '-key') { $hideNext=$true }
+  }
+  return @($out)
+}
+
+function Mark-LogOffset($path) {
+  try {
+    if(Test-Path $path) { $global:offsets[$path] = [int64](Get-Item $path).Length }
+    else { New-Item -ItemType File -Force -Path $path | Out-Null; $global:offsets[$path] = 0 }
+  } catch { $global:offsets[$path] = 0 }
+}
+
+function Start-HiddenProcess($file,$argList,$envs=@{}) {
   $cleanArgs = @($argList | Where-Object { $null -ne $_ -and ([string]$_).Length -gt 0 } | ForEach-Object { [string]$_ })
   $argString = Join-Args $cleanArgs
   $psi = New-Object Diagnostics.ProcessStartInfo
@@ -213,35 +251,17 @@ function Start-HiddenProcess($file,$argList,$stdout,$stderr,$envs=@{}) {
   $psi.WorkingDirectory = $root
   $psi.UseShellExecute = $false
   $psi.CreateNoWindow = $true
-  $psi.RedirectStandardOutput = $true
-  $psi.RedirectStandardError = $true
+  $psi.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+  $psi.RedirectStandardOutput = $false
+  $psi.RedirectStandardError = $false
   $psi.EnvironmentVariables['ENABLE_DEPRECATED_LEGACY_DNS_SERVERS'] = 'true'
   $psi.EnvironmentVariables['ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER'] = 'true'
   foreach($k in $envs.Keys){ $psi.EnvironmentVariables[$k] = $envs[$k] }
   $p = New-Object Diagnostics.Process
   $p.StartInfo = $psi
-  $outWriter = [IO.StreamWriter]::new($stdout, $true, [Text.UTF8Encoding]::new($false))
-  $errWriter = [IO.StreamWriter]::new($stderr, $true, [Text.UTF8Encoding]::new($false))
-  Register-ObjectEvent $p OutputDataReceived DataReceived -Action { if($EventArgs.Data){ $Event.MessageData.WriteLine($EventArgs.Data); $Event.MessageData.Flush() } } -MessageData $outWriter | Out-Null
-  Register-ObjectEvent $p ErrorDataReceived DataReceived -Action { if($EventArgs.Data){ $Event.MessageData.WriteLine($EventArgs.Data); $Event.MessageData.Flush() } } -MessageData $errWriter | Out-Null
   [void]$p.Start()
-  $p.BeginOutputReadLine()
-  $p.BeginErrorReadLine()
-  Add-Log ('RUN: ' + $file + ' ' + $argString)
+  Add-Log ('RUN: ' + $file + ' ' + (Join-Args (Redact-ArgsForLog $cleanArgs)))
   return $p
-}
-
-function Wait-Socks($cc, [int]$seconds) {
-  for($i=1; $i -le $seconds; $i++) {
-    if($global:olcProc -and $global:olcProc.HasExited) {
-      Add-Log "olcRTC exited early, cmd exit code=$($global:olcProc.ExitCode)"
-      return $null
-    }
-    $ip = Test-Socks $cc
-    if($ip) { return $ip }
-    Start-Sleep -Seconds 1
-  }
-  return $null
 }
 
 $saveBtn.Add_Click({ Save-Conf (Cur-Conf); Add-Log "Saved config: $confPath" })
@@ -250,30 +270,26 @@ $connectBtn.Add_Click({
   $cc = Cur-Conf
   Save-Conf $cc
   if([string]::IsNullOrWhiteSpace($cc.room_id) -or [string]::IsNullOrWhiteSpace($cc.key)) { Add-Log 'ERROR: Room ID and Key are required'; return }
-  Stop-All
+  Stop-All $true
   $connectBtn.Enabled=$false; $disconnectBtn.Enabled=$true
-  Set-Status 'connecting...' ([Drawing.Color]::DarkOrange)
-  Remove-Item $olcLog,$olcErr,$sbOut,$sbErr,$sbLog -ErrorAction SilentlyContinue
-  $global:offsets = @{}
+  Set-Status 'starting olcRTC...' ([Drawing.Color]::DarkOrange)
+  Mark-LogOffset $olcLog
+  Mark-LogOffset $sbLog
+  Add-Content -Path $olcLog -Value "`r`n===== olcRTC GUI connect $(Get-Date -Format o) =====" -ErrorAction SilentlyContinue
   try {
     Resolve-WBHosts
     $dataDir = Join-Path $root 'data'; New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
-    $olcArgs = @('-mode','cnc','-carrier','wbstream','-transport','datachannel','-id',$cc.room_id,'-key',$cc.key,'-link','direct','-dns',$cc.dns,'-data',$dataDir,'-socks-host',$cc.socks_host,'-socks-port',[string]$cc.socks_port,'-debug')
+    $olcArgs = @('-mode','cnc','-carrier','wbstream','-transport','datachannel','-id',$cc.room_id,'-key',$cc.key,'-link','direct','-dns',$cc.dns,'-data',$dataDir,'-socks-host',$cc.socks_host,'-socks-port',[string]$cc.socks_port,'-log-file',$olcLog)
     Add-Log 'Starting olcRTC...'
-    $global:olcProc = Start-HiddenProcess $olc $olcArgs $olcLog $olcErr
+    $global:olcProc = Start-HiddenProcess $olc $olcArgs
     Add-Log "olcRTC wrapper PID: $($global:olcProc.Id)"
-    $ip = Wait-Socks $cc 30
-    if($ip){ Add-Log "SOCKS OK: $ip" } else { Add-Log 'SOCKS not ready after 30s; starting TUN anyway. Check olcrtc.log / olcrtc.err.log.' }
-    $sbConf = Write-SingBoxConfig $cc
-    Add-Log 'Starting sing-box TUN...'
-    $global:sbProc = Start-HiddenProcess $sb @('run','-c',$sbConf) $sbOut $sbErr
-    Add-Log "sing-box PID: $($global:sbProc.Id)"
-    Start-Sleep -Seconds 2
-    Set-Status 'connected' ([Drawing.Color]::DarkGreen)
-    Add-Log 'Connected. If traffic does not switch, check logs and run Test IP.'
+    $global:currentConf = $cc
+    $global:connectStarted = Get-Date
+    $global:connectState = 'waiting-socks'
+    Set-Status 'waiting for room / SOCKS...' ([Drawing.Color]::DarkOrange)
   } catch {
     Add-Log ('ERROR: ' + $_.Exception.Message)
-    Stop-All
+    Stop-All $true
   }
 })
 
@@ -282,33 +298,88 @@ $testBtn.Add_Click({ $cc=Cur-Conf; $ip=Test-Socks $cc; if($ip){ Add-Log "TEST SO
 $openLogsBtn.Add_Click({ Start-Process explorer.exe $root })
 $exitBtn.Add_Click({ Stop-All; $form.Close() })
 
-function Append-NewFile($path,$prefix) {
+function Start-SingBox($cc) {
+  if($global:sbProc -and -not $global:sbProc.HasExited) { return }
+  $sbConf = Write-SingBoxConfig $cc
+  Add-Log 'SOCKS ready. Starting sing-box TUN...'
+  $global:sbProc = Start-HiddenProcess $sb @('run','-c',$sbConf)
+  Add-Log "sing-box PID: $($global:sbProc.Id)"
+  $global:connectState='connected'
+  Set-Status 'connected' ([Drawing.Color]::DarkGreen)
+  Add-Log 'Connected. Use Test IP if traffic does not switch.'
+}
+
+function Should-ShowOlcLine([string]$line) {
+  if([string]::IsNullOrWhiteSpace($line)) { return $false }
+  return ($line -match 'METRICS udp-client|SOCKS5 server listening|udp lossy|Link connected|reconnect|conference end|failed|error|warn|Shutting down')
+}
+
+function Append-NewFile($path,$prefix,$olcFilter=$false) {
   if(-not (Test-Path $path)) { return }
+  $fs = $null
+  $sr = $null
   try {
-    $txt = Get-Content $path -Raw -ErrorAction SilentlyContinue
-    if($null -eq $txt) { return }
-    $last = 0
-    if($global:offsets.ContainsKey($path)) { $last = [int]$global:offsets[$path] }
-    if($txt.Length -gt $last) {
-      $chunk = $txt.Substring($last)
-      if($chunk.Trim().Length -gt 0) { $logBox.AppendText(($chunk -replace "`n","`r`n")) }
-      $global:offsets[$path] = $txt.Length
+    $fs = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    $last = [int64]0
+    if($global:offsets.ContainsKey($path)) { $last = [int64]$global:offsets[$path] }
+    if($fs.Length -lt $last) { $last = 0 }
+    if($fs.Length -gt $last) {
+      [void]$fs.Seek($last, [IO.SeekOrigin]::Begin)
+      $sr = New-Object IO.StreamReader($fs, [Text.UTF8Encoding]::new($false), $true, 4096, $true)
+      $chunk = $sr.ReadToEnd()
+      $global:offsets[$path] = $fs.Length
+      if($chunk.Trim().Length -gt 0) {
+        $lines = @($chunk -split "`r?`n" | Where-Object { $_.Trim().Length -gt 0 })
+        foreach($line in $lines) {
+          if($olcFilter -and -not (Should-ShowOlcLine $line)) { continue }
+          $logBox.AppendText(($prefix + $line + "`r`n"))
+        }
+      }
     }
-  } catch {}
+  } catch {} finally {
+    try { if($sr){ $sr.Dispose() } } catch {}
+    try { if($fs){ $fs.Dispose() } } catch {}
+  }
 }
 
 $timer = New-Object Windows.Forms.Timer
 $timer.Interval = 1500
 $timer.Add_Tick({
-  Append-NewFile $olcLog '[olcrtc] '
-  Append-NewFile $olcErr '[olcrtc] '
-  Append-NewFile $sbOut '[sing-box] '
-  Append-NewFile $sbErr '[sing-box-err] '
-  Append-NewFile $sbLog '[sing-box-core] '
-  if($global:olcProc -and $global:sbProc) {
-    if($global:olcProc.HasExited) {
+  Append-NewFile $olcLog '[olcrtc] ' $true
+
+  if($global:connectState -eq 'waiting-socks') {
+    if($global:olcProc -and $global:olcProc.HasExited) {
+      Add-Log "ERROR: olcRTC exited before SOCKS, code=$($global:olcProc.ExitCode). Check olcrtc.log."
+      $global:connectState='error'
+      $connectBtn.Enabled=$true; $disconnectBtn.Enabled=$false
       Set-Status "olcRTC exited code=$($global:olcProc.ExitCode)" ([Drawing.Color]::DarkRed)
-    } elseif($global:sbProc.HasExited) {
+      return
+    }
+    if($global:currentConf -and (Test-LocalPort $global:currentConf.socks_host ([int]$global:currentConf.socks_port))) {
+      Start-SingBox $global:currentConf
+      return
+    }
+    if($global:connectStarted -and (((Get-Date) - $global:connectStarted).TotalSeconds -gt 45)) {
+      Add-Log 'ERROR: SOCKS did not become ready in 45s. Room is probably unavailable or key/ROOM_ID is wrong.'
+      Stop-All $true
+      return
+    }
+    Set-Status 'waiting for room / SOCKS...' ([Drawing.Color]::DarkOrange)
+    return
+  }
+
+  if($global:connectState -eq 'connected') {
+    if($global:olcProc -and $global:olcProc.HasExited) {
+      Add-Log "ERROR: olcRTC exited code=$($global:olcProc.ExitCode)"
+      Stop-Tree $global:sbProc; $global:sbProc=$null
+      $global:connectState='error'
+      $connectBtn.Enabled=$true; $disconnectBtn.Enabled=$false
+      Set-Status "olcRTC exited code=$($global:olcProc.ExitCode)" ([Drawing.Color]::DarkRed)
+    } elseif($global:sbProc -and $global:sbProc.HasExited) {
+      Add-Log "ERROR: sing-box exited code=$($global:sbProc.ExitCode). Check sing-box.log."
+      Stop-Tree $global:olcProc; $global:olcProc=$null
+      $global:connectState='error'
+      $connectBtn.Enabled=$true; $disconnectBtn.Enabled=$false
       Set-Status "sing-box exited code=$($global:sbProc.ExitCode)" ([Drawing.Color]::DarkRed)
     } else {
       Set-Status 'connected' ([Drawing.Color]::DarkGreen)

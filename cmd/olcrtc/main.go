@@ -6,14 +6,15 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 	"time"
 
-	lksdk "github.com/livekit/server-sdk-go/v2"
 	protoLogger "github.com/livekit/protocol/logger"
+	lksdk "github.com/livekit/server-sdk-go/v2"
 	"github.com/openlibrecommunity/olcrtc/internal/app/session"
 	"github.com/openlibrecommunity/olcrtc/internal/logger"
 	"github.com/openlibrecommunity/olcrtc/internal/names"
@@ -23,25 +24,26 @@ import (
 var ErrDataDirRequired = errors.New("data directory required (use -data data)")
 
 type config struct {
-	mode           string
-	link           string
-	transport      string
-	carrier        string
-	roomID         string
-	provider       string
-	socksPort      int
-	socksHost      string
-	keyHex         string
-	debug          bool
-	dataDir        string
-	dnsServer      string
-	socksProxyAddr string
-	socksProxyPort int
-	videoWidth     int
-	videoHeight    int
-	videoFPS       int
-	videoBitrate   string
-	videoHW        string
+	mode            string
+	link            string
+	transport       string
+	carrier         string
+	roomID          string
+	provider        string
+	socksPort       int
+	socksHost       string
+	keyHex          string
+	debug           bool
+	logFile         string
+	dataDir         string
+	dnsServer       string
+	socksProxyAddr  string
+	socksProxyPort  int
+	videoWidth      int
+	videoHeight     int
+	videoFPS        int
+	videoBitrate    string
+	videoHW         string
 	videoQRSize     int
 	videoQRRecovery string
 	videoCodec      string
@@ -62,7 +64,9 @@ func run() error {
 	session.RegisterDefaults()
 
 	cfg := parseFlags()
-	configureLogging(cfg.debug)
+	if err := configureLogging(cfg.debug, cfg.logFile); err != nil {
+		return err
+	}
 
 	if err := session.Validate(toSessionConfig(cfg)); err != nil {
 		return fmt.Errorf("validate config: %w", err)
@@ -115,6 +119,7 @@ func parseFlags() config {
 	flag.StringVar(&cfg.socksHost, "socks-host", "", "SOCKS5 listen host (client only)")
 	flag.StringVar(&cfg.keyHex, "key", "", "Shared encryption key (hex)")
 	flag.BoolVar(&cfg.debug, "debug", false, "Enable verbose logging")
+	flag.StringVar(&cfg.logFile, "log-file", "", "Write olcRTC logs to this file")
 	flag.StringVar(&cfg.dataDir, "data", "", "Path to data directory")
 	flag.StringVar(&cfg.dnsServer, "dns", "", "DNS server (e.g. 1.1.1.1:53)")
 	flag.StringVar(&cfg.socksProxyAddr, "socks-proxy", "", "SOCKS5 proxy address (server only)")
@@ -139,13 +144,24 @@ func parseFlags() config {
 	return cfg
 }
 
-func configureLogging(debug bool) {
+func configureLogging(debug bool, logFile string) error {
+	if logFile != "" {
+		if err := os.MkdirAll(filepath.Dir(logFile), 0o755); err != nil {
+			return fmt.Errorf("create log dir: %w", err)
+		}
+		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			return fmt.Errorf("open log file: %w", err)
+		}
+		log.SetOutput(f)
+	}
 	if debug {
 		logger.SetVerbose(true)
-		return
+		return nil
 	}
 	// Suppress noisy LiveKit/pion logs unless debug is enabled.
 	lksdk.SetLogger(protoLogger.GetDiscardLogger())
+	return nil
 }
 
 func resolveDataDir(dataDir string) (string, error) {
