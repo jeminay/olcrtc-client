@@ -118,10 +118,10 @@ function Test-Socks($cc) {
   return $null
 }
 
-function Test-LocalPort([string]$host, [int]$port, [int]$timeoutMs=350) {
+function Test-LocalPort([string]$addr, [int]$port, [int]$timeoutMs=350) {
   $client = New-Object Net.Sockets.TcpClient
   try {
-    $iar = $client.BeginConnect($host, $port, $null, $null)
+    $iar = $client.BeginConnect($addr, $port, $null, $null)
     if(-not $iar.AsyncWaitHandle.WaitOne($timeoutMs, $false)) { return $false }
     $client.EndConnect($iar)
     return $true
