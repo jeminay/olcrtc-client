@@ -64,6 +64,21 @@ type ConnectRequest struct {
 const (
 	udpFrameHeaderSize = 2
 	maxUDPPayload      = 65535
+
+	// The client and VPS clocks can be skewed, so do not use absolute packet age
+	// as a hard latency gate. Instead, learn each flow's lowest observed age and
+	// drop only packets that are clearly delayed relative to that baseline.
+	udpClientStaleDelta = 100 * time.Millisecond
+
+	// CS2/Steam server browser can fan out to hundreds of 270xx UDP endpoints and
+	// flood the WebRTC datagram channel with one-shot ping replies. When fanout is
+	// high, suppress replies from one-shot/idle game-browser flows while allowing
+	// real game flows after a short warm-up.
+	udpGamePortMin                   = 27000
+	udpGamePortMax                   = 27200
+	udpGameBrowserFlowLimit          = 24
+	udpGameBrowserMinClientDatagrams = 8
+	udpGameBrowserIdleReply          = 750 * time.Millisecond
 )
 
 // Run starts the server with the specified parameters.
@@ -296,6 +311,14 @@ func (s *Server) onDatagram(data []byte) {
 		return
 	}
 
+	var packetAge time.Duration
+	var hasSanePacketAge bool
+	if packet.SentUnixNano > 0 {
+		packetAge = now.Sub(time.Unix(0, packet.SentUnixNano))
+		s.udpMetrics.RecordAge(packetAge)
+		hasSanePacketAge = packetAge >= 0 && packetAge <= 10*time.Second
+	}
+
 	flow, err := s.getUDPDatagramFlow(packet)
 	if err != nil {
 		logger.Infof("udp lossy flow=%d %s:%d failed: %v", packet.FlowID, packet.Addr, packet.Port, err)
@@ -305,8 +328,9 @@ func (s *Server) onDatagram(data []byte) {
 		s.udpMetrics.RecordDropReorder()
 		return
 	}
-	if packet.SentUnixNano > 0 {
-		s.udpMetrics.RecordAge(now.Sub(time.Unix(0, packet.SentUnixNano)))
+	if hasSanePacketAge && flow.isClientPacketStale(packetAge) {
+		s.udpMetrics.RecordDropStale()
+		return
 	}
 	_ = flow.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	if _, err := flow.conn.Write(packet.Payload); err != nil {
@@ -527,6 +551,9 @@ type udpDatagramFlow struct {
 	seq                    atomic.Uint64
 	lastClientSeq          atomic.Uint64
 	lastClientSentUnixNano atomic.Int64
+	lastClientSeenUnixNano atomic.Int64
+	clientDatagrams        atomic.Uint64
+	minClientAgeNano       atomic.Int64
 }
 
 func (s *Server) getUDPDatagramFlow(packet udpwire.ClientPacket) (*udpDatagramFlow, error) {
@@ -585,7 +612,7 @@ func (f *udpDatagramFlow) readLoop() {
 	defer f.close()
 	buf := make([]byte, maxUDPPayload)
 	for {
-		_ = f.conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
+		_ = f.conn.SetReadDeadline(time.Now().Add(15 * time.Second))
 		n, err := f.conn.Read(buf)
 		if err != nil {
 			return
@@ -598,6 +625,11 @@ func (f *udpDatagramFlow) readLoop() {
 }
 
 func (f *udpDatagramFlow) sendToClient(payload []byte) error {
+	if f.shouldSuppressGameBrowserReply() {
+		f.server.udpMetrics.RecordDropStale()
+		return nil
+	}
+
 	dl, ok := f.server.datagramLink()
 	if !ok {
 		return fmt.Errorf("datagram link not ready")
@@ -632,9 +664,47 @@ func (f *udpDatagramFlow) acceptClientPacket(packet udpwire.ClientPacket) bool {
 		}
 		if f.lastClientSeq.CompareAndSwap(last, packet.Seq) {
 			f.lastClientSentUnixNano.Store(packet.SentUnixNano)
+			f.lastClientSeenUnixNano.Store(time.Now().UnixNano())
+			f.clientDatagrams.Add(1)
 			return true
 		}
 	}
+}
+
+func (f *udpDatagramFlow) isClientPacketStale(age time.Duration) bool {
+	ageNano := int64(age)
+	for {
+		minAge := f.minClientAgeNano.Load()
+		if minAge != 0 && ageNano >= minAge {
+			return ageNano-minAge > int64(udpClientStaleDelta)
+		}
+		if f.minClientAgeNano.CompareAndSwap(minAge, ageNano) {
+			return false
+		}
+	}
+}
+
+func (f *udpDatagramFlow) shouldSuppressGameBrowserReply() bool {
+	if f.port < udpGamePortMin || f.port > udpGamePortMax {
+		return false
+	}
+	if !f.server.hasUDPFlowFanout(udpGameBrowserFlowLimit) {
+		return false
+	}
+	if f.clientDatagrams.Load() < udpGameBrowserMinClientDatagrams {
+		return true
+	}
+	lastSeen := f.lastClientSeenUnixNano.Load()
+	return lastSeen > 0 && time.Since(time.Unix(0, lastSeen)) > udpGameBrowserIdleReply
+}
+
+func (s *Server) hasUDPFlowFanout(limit int) bool {
+	count := 0
+	s.udpFlows.Range(func(_, _ interface{}) bool {
+		count++
+		return count <= limit
+	})
+	return count > limit
 }
 
 func (f *udpDatagramFlow) close() {
